@@ -42,17 +42,56 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
     return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 
   try {
-    await prisma.voucher.update({
+    const voucher = await prisma.voucher.findUnique({
       where: { id: params.id },
-      data: { isActive: false },
+      include: {
+        _count: {
+          select: {
+            saleItems: true,
+          },
+        },
+      },
     });
-    return NextResponse.json({ success: true, message: "Voucher dinonaktifkan" });
-  } catch (error) {
-    return NextResponse.json({ error: "Gagal menonaktifkan voucher" }, { status: 500 });
+
+    if (!voucher) {
+      return NextResponse.json({ error: "Voucher tidak ditemukan" }, { status: 404 });
+    }
+
+    // Jika voucher sudah pernah terjual, lakukan soft-delete agar laporan transaksi tetap aman
+    if (voucher._count.saleItems > 0) {
+      await prisma.voucher.update({
+        where: { id: params.id },
+        data: { isActive: false },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Voucher dinonaktifkan dari katalog karena memiliki riwayat penjualan",
+        softDeleted: true,
+      });
+    }
+
+    // Jika belum ada penjualan, hapus riwayat mutasi stok lalu hapus permanen
+    await prisma.voucherMovement.deleteMany({
+      where: { voucherId: params.id },
+    });
+
+    await prisma.voucher.delete({
+      where: { id: params.id },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Voucher berhasil dihapus permanen dari sistem",
+      softDeleted: false,
+    });
+  } catch (error: any) {
+    console.error("DELETE Voucher Error:", error);
+    return NextResponse.json({ error: error.message || "Gagal menghapus voucher" }, { status: 500 });
   }
 }

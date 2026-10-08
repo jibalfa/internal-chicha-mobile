@@ -77,19 +77,56 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
     return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 
   try {
-    // Soft delete product by setting isActive to false
-    await prisma.product.update({
+    const product = await prisma.product.findUnique({
       where: { id: params.id },
-      data: { isActive: false },
+      include: {
+        _count: {
+          select: {
+            saleItems: true,
+          },
+        },
+      },
     });
 
-    return NextResponse.json({ success: true, message: "Produk dinonaktifkan" });
-  } catch (error) {
-    return NextResponse.json({ error: "Gagal menghapus produk" }, { status: 500 });
+    if (!product) {
+      return NextResponse.json({ error: "Produk tidak ditemukan" }, { status: 404 });
+    }
+
+    // Jika produk sudah memiliki riwayat penjualan, lakukan soft-delete agar laporan keuangan tetap valid
+    if (product._count.saleItems > 0) {
+      await prisma.product.update({
+        where: { id: params.id },
+        data: { isActive: false },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "Produk dinonaktifkan dari katalog karena memiliki riwayat penjualan",
+        softDeleted: true,
+      });
+    }
+
+    // Jika belum ada riwayat penjualan, hapus riwayat mutasi stok lalu hapus produk secara permanen
+    await prisma.inventoryMovement.deleteMany({
+      where: { productId: params.id },
+    });
+
+    await prisma.product.delete({
+      where: { id: params.id },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Produk berhasil dihapus permanen dari sistem",
+      softDeleted: false,
+    });
+  } catch (error: any) {
+    console.error("DELETE Product Error:", error);
+    return NextResponse.json({ error: error.message || "Gagal menghapus produk" }, { status: 500 });
   }
 }

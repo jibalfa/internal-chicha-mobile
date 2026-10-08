@@ -11,7 +11,9 @@ import {
   CheckCircle2,
   TrendingUp,
   Save,
+  Edit2,
   Edit3,
+  Trash2,
   Calendar,
   FileSpreadsheet,
 } from "lucide-react";
@@ -88,6 +90,9 @@ export default function VoucherClient({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
+  const [editingVoucher, setEditingVoucher] = useState<Voucher | null>(null);
+  const [voucherToDelete, setVoucherToDelete] = useState<Voucher | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Correction Modal
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
@@ -347,6 +352,60 @@ export default function VoucherClient({
     if (o.includes("smartfren")) return "bg-rose-50 text-rose-600 border-rose-200";
     if (o.includes("axis")) return "bg-purple-50 text-purple-600 border-purple-200";
     return "bg-slate-100 text-slate-700 border-slate-200";
+  };
+
+  const handleDeleteVoucher = async () => {
+    if (!voucherToDelete) return;
+    setDeleteLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const res = await fetch(`/api/vouchers/${voucherToDelete.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal menghapus voucher");
+
+      setVouchers(vouchers.filter((v) => v.id !== voucherToDelete.id));
+      setVoucherToDelete(null);
+      if (editingVoucher?.id === voucherToDelete.id) {
+        setEditingVoucher(null);
+      }
+      setSuccessMessage(data.message || "Voucher berhasil dihapus");
+    } catch (err: any) {
+      setErrorMessage(err.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleUpdateVoucher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVoucher) return;
+    setLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const res = await fetch(`/api/vouchers/${editingVoucher.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          costPrice: Number(editingVoucher.costPrice),
+          sellingPrice: Number(editingVoucher.sellingPrice),
+          minStock: Number(editingVoucher.minStock),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal memperbarui voucher");
+
+      setVouchers(vouchers.map((v) => (v.id === editingVoucher.id ? { ...v, ...data.voucher } : v)));
+      setEditingVoucher(null);
+      setSuccessMessage("Data voucher berhasil diperbarui!");
+    } catch (err: any) {
+      setErrorMessage(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Aggregated today sales summary
@@ -803,13 +862,30 @@ export default function VoucherClient({
                             )}
                           </td>
                           <td className="px-5 py-3.5 text-right">
-                            <button
-                              onClick={() => openStockInFor(v)}
-                              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1"
-                            >
-                              <PlusCircle className="w-3.5 h-3.5" />
-                              <span>+ Stok Masuk</span>
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => openStockInFor(v)}
+                                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1"
+                                title="Tambah Stok Masuk"
+                              >
+                                <PlusCircle className="w-3.5 h-3.5" />
+                                <span>+ Stok</span>
+                              </button>
+                              <button
+                                onClick={() => setEditingVoucher(v)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                title="Edit Voucher"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setVoucherToDelete(v)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                title="Hapus Voucher"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1239,6 +1315,177 @@ export default function VoucherClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT VOUCHER */}
+      {editingVoucher && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Edit Data Voucher</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Perbarui harga dan batas peringatan stok minimum
+                </p>
+              </div>
+              <button onClick={() => setEditingVoucher(null)} className="text-slate-400 hover:text-slate-600">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateVoucher} className="space-y-3">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-lg text-xs font-bold border ${getOperatorBadgeClass(editingVoucher.operator)}`}>
+                    {editingVoucher.operator}
+                  </span>
+                  <span className="font-bold text-slate-900 text-sm">
+                    {editingVoucher.nominal}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Stok saat ini: <span className="font-bold text-slate-800">{editingVoucher.stock} pcs</span>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Harga Modal (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={editingVoucher.costPrice}
+                    onChange={(e) =>
+                      setEditingVoucher({ ...editingVoucher, costPrice: Number(e.target.value) })
+                    }
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Harga Jual (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={editingVoucher.sellingPrice}
+                    onChange={(e) =>
+                      setEditingVoucher({ ...editingVoucher, sellingPrice: Number(e.target.value) })
+                    }
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Peringatan Minimum Stok (Pcs)
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  value={editingVoucher.minStock}
+                  onChange={(e) =>
+                    setEditingVoucher({ ...editingVoucher, minStock: Number(e.target.value) })
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = editingVoucher;
+                    setEditingVoucher(null);
+                    setVoucherToDelete(target);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Hapus Voucher</span>
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingVoucher(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow disabled:opacity-50"
+                  >
+                    {loading ? "Menyimpan..." : "Simpan Perubahan"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL KONFIRMASI HAPUS VOUCHER */}
+      {voucherToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Konfirmasi Hapus Voucher</h3>
+                <p className="text-xs text-slate-500">Tindakan penghapusan jenis voucher fisik</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Operator:</span>
+                <span className="font-bold text-slate-900">{voucherToDelete.operator}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Nominal:</span>
+                <span className="font-bold text-slate-900">{voucherToDelete.nominal}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Stok Fisik Saat Ini:</span>
+                <span className="font-semibold text-slate-800">{voucherToDelete.stock} pcs</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Apakah Anda yakin ingin menghapus voucher ini? Jika voucher sudah pernah terjual, voucher akan otomatis dinonaktifkan (diarsipkan) dari katalog agar rekap laporan keuangan masa lalu tetap aman.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={() => setVoucherToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={handleDeleteVoucher}
+                className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
+              >
+                {deleteLoading ? "Menghapus..." : "Ya, Hapus Voucher"}
+              </button>
+            </div>
           </div>
         </div>
       )}

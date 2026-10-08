@@ -42,17 +42,49 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
     return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 
   try {
-    await prisma.digitalProduct.update({
+    const product = await prisma.digitalProduct.findUnique({
       where: { id: params.id },
-      data: { isActive: false },
+      include: {
+        _count: {
+          select: {
+            transactions: true,
+          },
+        },
+      },
     });
-    return NextResponse.json({ success: true, message: "Produk digital dinonaktifkan" });
-  } catch (error) {
-    return NextResponse.json({ error: "Gagal menonaktifkan produk digital" }, { status: 500 });
+
+    if (!product) {
+      return NextResponse.json({ error: "Produk digital tidak ditemukan" }, { status: 404 });
+    }
+
+    if (product._count.transactions > 0) {
+      await prisma.digitalProduct.update({
+        where: { id: params.id },
+        data: { isActive: false },
+      });
+      return NextResponse.json({
+        success: true,
+        message: "Produk digital dinonaktifkan karena memiliki riwayat transaksi",
+        softDeleted: true,
+      });
+    }
+
+    await prisma.digitalProduct.delete({
+      where: { id: params.id },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Produk digital berhasil dihapus permanen",
+      softDeleted: false,
+    });
+  } catch (error: any) {
+    console.error("DELETE Digital Product Error:", error);
+    return NextResponse.json({ error: error.message || "Gagal menghapus produk digital" }, { status: 500 });
   }
 }

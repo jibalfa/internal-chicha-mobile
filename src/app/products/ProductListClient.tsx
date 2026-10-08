@@ -10,6 +10,7 @@ import {
   FolderPlus,
   Truck,
   Edit2,
+  Trash2,
   CheckCircle2,
   TrendingUp,
 } from "lucide-react";
@@ -72,6 +73,9 @@ export default function ProductListClient({
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -230,8 +234,41 @@ export default function ProductListClient({
     }
   };
 
+  const handleDeleteProduct = async () => {
+    if (!productToDelete) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/products/${productToDelete.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal menghapus produk");
+
+      setProducts(products.filter((p) => p.id !== productToDelete.id));
+      setProductToDelete(null);
+      if (editingProduct?.id === productToDelete.id) {
+        setEditingProduct(null);
+      }
+      setSuccessToast(data.message || "Produk berhasil dihapus");
+      setTimeout(() => setSuccessToast(null), 4000);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {successToast && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-2xl flex items-center justify-between shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successToast}</span>
+          </div>
+          <button onClick={() => setSuccessToast(null)} className="text-emerald-500 hover:text-emerald-700">✕</button>
+        </div>
+      )}
       {/* Top Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -477,13 +514,22 @@ export default function ProductListClient({
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        <button
-                          onClick={() => setEditingProduct(p)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                          title="Edit Produk"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEditingProduct(p)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            title="Edit Produk"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setProductToDelete(p)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            title="Hapus Produk"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -799,21 +845,35 @@ export default function ProductListClient({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setEditingProduct(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  onClick={() => {
+                    const target = editingProduct;
+                    setEditingProduct(null);
+                    setProductToDelete(target);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
                 >
-                  Batal
+                  <Trash2 className="w-4 h-4" />
+                  <span>Hapus Produk</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow disabled:opacity-50"
-                >
-                  {loading ? "Menyimpan..." : "Perbarui"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProduct(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow disabled:opacity-50"
+                  >
+                    {loading ? "Menyimpan..." : "Perbarui"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -924,6 +984,61 @@ export default function ProductListClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Produk */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Konfirmasi Hapus Produk</h3>
+                <p className="text-xs text-slate-500">Tindakan penghapusan produk dari sistem</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Nama Produk:</span>
+                <span className="font-bold text-slate-900">{productToDelete.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">SKU:</span>
+                <span className="font-mono font-semibold text-slate-700">{productToDelete.sku}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Stok Saat Ini:</span>
+                <span className="font-semibold text-slate-800">{productToDelete.stock} pcs</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Apakah Anda yakin ingin menghapus produk ini? Jika produk pernah terjual, produk akan otomatis dinonaktifkan (diarsipkan) dari katalog & kasir POS agar laporan keuangan masa lalu tetap valid.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={deleteLoading}
+                onClick={handleDeleteProduct}
+                className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
+              >
+                {deleteLoading ? "Menghapus..." : "Ya, Hapus Produk"}
+              </button>
+            </div>
           </div>
         </div>
       )}
