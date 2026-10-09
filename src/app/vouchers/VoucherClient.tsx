@@ -16,8 +16,10 @@ import {
   Trash2,
   Calendar,
   FileSpreadsheet,
+  UserCheck,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
+import VoucherDebtsTab, { VoucherDebt } from "./VoucherDebtsTab";
 
 interface Voucher {
   id: string;
@@ -62,6 +64,7 @@ interface VoucherClientProps {
   initialVouchers: Voucher[];
   initialMovements: VoucherMovement[];
   initialTodaySales?: TodaySaleItem[];
+  initialDebts?: VoucherDebt[];
   userRole: string;
 }
 
@@ -71,16 +74,57 @@ export default function VoucherClient({
   initialVouchers,
   initialMovements,
   initialTodaySales = [],
+  initialDebts = [],
   userRole,
 }: VoucherClientProps) {
   const [vouchers, setVouchers] = useState<Voucher[]>(initialVouchers);
   const [movements, setMovements] = useState<VoucherMovement[]>(initialMovements);
   const [todaySales, setTodaySales] = useState<TodaySaleItem[]>(initialTodaySales);
+  const [debts, setDebts] = useState<VoucherDebt[]>(initialDebts);
 
-  const [activeTab, setActiveTab] = useState<"DAILY_SALES" | "CATALOG" | "MOVEMENTS">("DAILY_SALES");
+  const [activeTab, setActiveTab] = useState<"DAILY_SALES" | "DEBTS" | "CATALOG" | "MOVEMENTS">("DAILY_SALES");
   const [selectedOperator, setSelectedOperator] = useState("Semua");
   const [search, setSearch] = useState("");
   const [onlyLowStock, setOnlyLowStock] = useState(false);
+
+  // Unpaid Debts metrics
+  const unpaidDebts = debts.filter((d) => d.status === "UNPAID");
+  const unpaidDebtsCount = unpaidDebts.length;
+  const unpaidDebtsTotal = unpaidDebts.reduce((sum, d) => sum + d.totalAmount, 0);
+
+  // Refresh helpers
+  const refreshVouchersData = async () => {
+    try {
+      const [vouchersRes, movementsRes, debtsRes] = await Promise.all([
+        fetch("/api/vouchers"),
+        fetch("/api/vouchers/movements?limit=60"),
+        fetch("/api/vouchers/debts"),
+      ]);
+      const vData = await vouchersRes.json();
+      const mData = await movementsRes.json();
+      const dData = await debtsRes.json();
+      if (vData.vouchers) setVouchers(vData.vouchers);
+      if (mData.movements) setMovements(mData.movements);
+      if (dData.debts) setDebts(dData.debts);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const refreshSalesData = async () => {
+    try {
+      const [salesRes, debtsRes] = await Promise.all([
+        fetch("/api/vouchers/daily-sales"),
+        fetch("/api/vouchers/debts"),
+      ]);
+      const sData = await salesRes.json();
+      const dData = await debtsRes.json();
+      if (sData.saleItems) setTodaySales(sData.saleItems);
+      if (dData.debts) setDebts(dData.debts);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Remaining Stock inputs for daily sales recording (voucherId -> string input)
   // User enters REMAINING stock (SISA), so sold quantity is automatically calculated
@@ -525,6 +569,23 @@ export default function VoucherClient({
         </button>
 
         <button
+          onClick={() => setActiveTab("DEBTS")}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all ${
+            activeTab === "DEBTS"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          <span>Bon & Piutang Pelanggan</span>
+          {unpaidDebtsCount > 0 && (
+            <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-500 text-white animate-pulse">
+              {unpaidDebtsCount}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab("CATALOG")}
           className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all ${
             activeTab === "CATALOG"
@@ -551,7 +612,31 @@ export default function VoucherClient({
 
       {/* TAB 1: PENCATATAN PENJUALAN VOUCHER (INPUT SISA STOK) */}
       {activeTab === "DAILY_SALES" && (
-        <div className="space-y-8">
+        <div className="space-y-6">
+          {unpaidDebtsCount > 0 && (
+            <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 font-bold">
+                  !
+                </div>
+                <div>
+                  <p className="font-bold text-amber-950">
+                    Ada {unpaidDebtsCount} catatan bon voucher ({formatRupiah(unpaidDebtsTotal)}) yang belum lunas.
+                  </p>
+                  <p className="text-amber-700 text-[11px] mt-0.5">
+                    Stok fisik voucher sudah otomatis terpotong saat bon dicatat. Kas laci Anda tetap akurat dan tidak akan tekor/selisih.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab("DEBTS")}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl font-bold text-xs shrink-0 transition-all shadow-sm"
+              >
+                Lihat Bon Pelanggan →
+              </button>
+            </div>
+          )}
+
           {/* Card 1: Input Form Tabel Penjualan Voucher */}
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4">
             <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-slate-50 to-indigo-50/30">
@@ -747,7 +832,18 @@ export default function VoucherClient({
         </div>
       )}
 
-      {/* TAB 2: KATALOG & PERSEDIAAN */}
+      {/* TAB 2: BON & PIUTANG PELANGGAN */}
+      {activeTab === "DEBTS" && (
+        <VoucherDebtsTab
+          vouchers={vouchers}
+          initialDebts={debts}
+          onRefreshVouchers={refreshVouchersData}
+          onRefreshSales={refreshSalesData}
+          userRole={userRole}
+        />
+      )}
+
+      {/* TAB 3: KATALOG & PERSEDIAAN */}
       {activeTab === "CATALOG" && (
         <div className="space-y-4">
           {/* Operator Filter Pills & Search */}
@@ -898,7 +994,7 @@ export default function VoucherClient({
         </div>
       )}
 
-      {/* TAB 3: AUDIT LOG MOVEMENTS */}
+      {/* TAB 4: AUDIT LOG MOVEMENTS */}
       {activeTab === "MOVEMENTS" && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">

@@ -17,7 +17,7 @@ export default async function VouchersPage() {
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  const [vouchers, movements, todaySales] = await Promise.all([
+  const [vouchers, movements, todaySales, debts] = await Promise.all([
     prisma.voucher.findMany({
       where: { isActive: true },
       orderBy: [{ operator: "asc" }, { costPrice: "asc" }],
@@ -52,6 +52,16 @@ export default async function VouchersPage() {
       },
       orderBy: { id: "desc" },
     }),
+    prisma.voucherDebt.findMany({
+      include: {
+        cashier: { select: { id: true, name: true, username: true } },
+        items: {
+          include: { voucher: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
   ]);
 
   const isOwner = session.role === "OWNER";
@@ -75,12 +85,25 @@ export default async function VouchersPage() {
         voucher: s.voucher ? { ...s.voucher, costPrice: 0 } : s.voucher,
       }));
 
+  const sanitizedDebts = isOwner
+    ? debts
+    : debts.map((d) => ({
+        ...d,
+        items: d.items.map((i) => ({
+          ...i,
+          costPrice: 0,
+          profit: 0,
+          voucher: i.voucher ? { ...i.voucher, costPrice: 0 } : i.voucher,
+        })),
+      }));
+
   return (
     <AppShell user={session}>
       <VoucherClient
         initialVouchers={JSON.parse(JSON.stringify(sanitizedVouchers))}
         initialMovements={JSON.parse(JSON.stringify(sanitizedMovements))}
         initialTodaySales={JSON.parse(JSON.stringify(sanitizedTodaySales))}
+        initialDebts={JSON.parse(JSON.stringify(sanitizedDebts))}
         userRole={session.role}
       />
     </AppShell>

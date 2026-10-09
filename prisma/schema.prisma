@@ -22,6 +22,7 @@ model User {
   digitalTransactions DigitalTransaction[]
   inventoryMovements  InventoryMovement[]
   expenses            Expense[]
+  voucherDebts        VoucherDebt[]
 
   @@map("users")
 }
@@ -108,6 +109,7 @@ model Voucher {
 
   movements    VoucherMovement[]
   saleItems    SaleItem[]
+  debtItems    VoucherDebtItem[]
 
   @@unique([operator, nominal])
   @@map("vouchers")
@@ -127,6 +129,43 @@ model VoucherMovement {
   voucher       Voucher             @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
   @@map("voucher_movements")
+}
+
+model VoucherDebt {
+  id            String            @id @default(cuid())
+  debtNumber    String            @unique
+  customerName  String
+  customerPhone String?
+  totalAmount   Float             @default(0)
+  status        String            @default("UNPAID") // UNPAID, PAID, CANCELLED
+  dueDate       DateTime?
+  paidAt        DateTime?
+  paidMethod    String?           // CASH, TRANSFER, QRIS
+  notes         String?
+  cashierId     String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  cashier       User?             @relation(fields: [cashierId], references: [id])
+  items         VoucherDebtItem[]
+
+  @@map("voucher_debts")
+}
+
+model VoucherDebtItem {
+  id          String       @id @default(cuid())
+  debtId      String
+  voucherId   String
+  quantity    Int          @default(1)
+  costPrice   Float        @default(0)
+  unitPrice   Float        @default(0)
+  subtotal    Float        @default(0)
+  profit      Float        @default(0)
+
+  debt        VoucherDebt  @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  voucher     Voucher      @relation(fields: [voucherId], references: [id])
+
+  @@map("voucher_debt_items")
 }
 
 model DigitalProduct {
