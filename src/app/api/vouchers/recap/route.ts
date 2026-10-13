@@ -67,15 +67,14 @@ export async function GET(request: NextRequest) {
           quantity: { gt: 0 }, // Hanya ambil kuantitas yang benar-benar terjual > 0
           sale: {
             OR: [
-              // 1. Transaksi Tunai/Non-Kredit: Dihitung saat transaksi dibuat (createdAt)
+              // 1. Transaksi dibuat di rentang tanggal ini (baik Tunai, QRIS, Transfer, maupun Kredit)
               {
-                paymentMethod: { not: "CREDIT" },
                 createdAt: {
                   gte: startDate,
                   lte: endDate,
                 },
               },
-              // 2. Transaksi Kredit/Nota: Uang & rekapan BARU DIHITUNG ketika nota telah dibayar lunas (paidAt)
+              // 2. Transaksi Kredit masa lalu yang dilunasi di rentang tanggal ini
               {
                 paymentMethod: "CREDIT",
                 paymentStatus: "PAID",
@@ -96,6 +95,8 @@ export async function GET(request: NextRequest) {
               paymentMethod: true,
               paymentStatus: true,
               paidAt: true,
+              customerName: true,
+              notes: true,
               cashier: { select: { id: true, name: true } },
             },
           },
@@ -117,6 +118,7 @@ export async function GET(request: NextRequest) {
       let totalRevenue = 0;
       let totalProfit = 0;
       let totalCost = 0;
+      let unpaidRevenue = 0;
 
       // Grouping breakdown by date (YYYY-MM-DD)
       const dayMap = new Map<
@@ -143,6 +145,9 @@ export async function GET(request: NextRequest) {
         }
       >();
 
+      // Detailed sales list
+      const salesList: any[] = [];
+
       for (const item of saleItems) {
         const qty = item.quantity;
         if (qty <= 0) continue; // Jangan proses item 0 pcs
@@ -151,19 +156,38 @@ export async function GET(request: NextRequest) {
         const prof = item.profit;
         const cost = item.costPrice * qty;
 
-        totalSold += qty;
-        totalRevenue += rev;
-        totalProfit += prof;
-        totalCost += cost;
-
-        // Group by effective transaction date:
-        // Untuk transaksi Kredit, uang diakui pada tanggal pelunasan (paidAt)
-        // Untuk transaksi Tunai/Langsung, diakui pada tanggal dibuat (createdAt)
         const saleRec = item.sale as any;
+        const isCredit = saleRec?.paymentMethod === "CREDIT";
+        const isPaid = saleRec?.paymentStatus === "PAID";
+        const isPaidInPeriod =
+          isCredit &&
+          isPaid &&
+          saleRec?.paidAt &&
+          new Date(saleRec.paidAt) >= startDate &&
+          new Date(saleRec.paidAt) <= endDate;
+        const isCreatedInPeriod =
+          new Date(saleRec.createdAt) >= startDate &&
+          new Date(saleRec.createdAt) <= endDate;
+
+        // Cash-basis recognition:
+        // - Non-credit: Realized if created in period
+        // - Credit: Realized if paid in period
+        const isRealized = !isCredit ? isCreatedInPeriod : isPaidInPeriod;
+
+        if (isRealized) {
+          totalRevenue += rev;
+          totalProfit += prof;
+          totalCost += cost;
+        } else if (isCredit && !isPaid) {
+          unpaidRevenue += rev;
+        }
+
+        if (isCreatedInPeriod) {
+          totalSold += qty;
+        }
+
         const effectiveDate =
-          saleRec?.paymentMethod === "CREDIT" && saleRec?.paidAt
-            ? new Date(saleRec.paidAt)
-            : new Date(saleRec.createdAt);
+          isCredit && saleRec?.paidAt ? new Date(saleRec.paidAt) : new Date(saleRec.createdAt);
         const dateKey = effectiveDate.toISOString().slice(0, 10);
 
         if (!dayMap.has(dateKey)) {
@@ -185,10 +209,14 @@ export async function GET(request: NextRequest) {
         }
 
         const dayEntry = dayMap.get(dateKey)!;
-        dayEntry.soldCount += qty;
-        dayEntry.revenue += rev;
-        dayEntry.profit += prof;
-        dayEntry.cost += cost;
+        if (isCreatedInPeriod) {
+          dayEntry.soldCount += qty;
+        }
+        if (isRealized) {
+          dayEntry.revenue += rev;
+          dayEntry.profit += prof;
+          dayEntry.cost += cost;
+        }
 
         const opName = item.voucher?.operator || "Lainnya";
         dayEntry.operators[opName] = (dayEntry.operators[opName] || 0) + qty;
@@ -203,14 +231,45 @@ export async function GET(request: NextRequest) {
           });
         }
         const opEntry = operatorMap.get(opName)!;
-        opEntry.soldCount += qty;
-        opEntry.revenue += rev;
-        opEntry.profit += prof;
+        if (isCreatedInPeriod) {
+          opEntry.soldCount += qty;
+        }
+        if (isRealized) {
+          opEntry.revenue += rev;
+          opEntry.profit += prof;
+        }
+
+        // Add to detailed sales list
+        const isPOS = !saleRec?.invoiceNumber?.startsWith("VCH-");
+        salesList.push({
+          id: item.id,
+          saleId: saleRec?.id,
+          invoiceNumber: saleRec?.invoiceNumber || "-",
+          source: isPOS ? "POS" : "DAILY_RECORD",
+          sourceLabel: isPOS ? "Kasir POS" : "Pencatatan Sisa Stok",
+          createdAt: saleRec?.createdAt,
+          paidAt: saleRec?.paidAt,
+          effectiveDate: effectiveDate.toISOString(),
+          itemName: item.itemName,
+          operator: item.voucher?.operator || "Lainnya",
+          nominal: item.voucher?.nominal || "",
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+          profit: isOwner ? (isRealized ? item.profit : 0) : 0,
+          costPrice: isOwner ? item.costPrice : 0,
+          paymentMethod: saleRec?.paymentMethod || "CASH",
+          paymentStatus: saleRec?.paymentStatus || "PAID",
+          customerName: saleRec?.customerName || null,
+          cashierName: saleRec?.cashier?.name || "Kasir",
+          notes: saleRec?.notes || null,
+          isRealized,
+        });
       }
 
       // Sort daily breakdown descending by date
       const dailyBreakdown = Array.from(dayMap.values())
-        .filter((row) => row.soldCount > 0)
+        .filter((row) => row.soldCount > 0 || row.revenue > 0)
         .sort((a, b) => b.dateStr.localeCompare(a.dateStr))
         .map((row) => ({
           ...row,
@@ -220,12 +279,17 @@ export async function GET(request: NextRequest) {
 
       // Sort operator breakdown descending by quantity sold
       const operatorBreakdown = Array.from(operatorMap.values())
-        .filter((row) => row.soldCount > 0)
+        .filter((row) => row.soldCount > 0 || row.revenue > 0)
         .sort((a, b) => b.soldCount - a.soldCount)
         .map((row) => ({
           ...row,
           profit: isOwner ? row.profit : 0,
         }));
+
+      // Sort salesList descending by createdAt
+      salesList.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
 
       return {
         period: {
@@ -238,13 +302,24 @@ export async function GET(request: NextRequest) {
           totalRevenue,
           totalProfit: isOwner ? totalProfit : 0,
           totalCost: isOwner ? totalCost : 0,
+          unpaidRevenue,
           profitMarginPct:
             isOwner && totalRevenue > 0
               ? Math.round((totalProfit / totalRevenue) * 1000) / 10
               : 0,
+          totalTransactions: salesList.length,
+          posCount: salesList.filter((s) => s.source === "POS").length,
+          posSold: salesList
+            .filter((s) => s.source === "POS")
+            .reduce((sum, s) => sum + s.quantity, 0),
+          dailyRecordCount: salesList.filter((s) => s.source === "DAILY_RECORD").length,
+          dailyRecordSold: salesList
+            .filter((s) => s.source === "DAILY_RECORD")
+            .reduce((sum, s) => sum + s.quantity, 0),
         },
         dailyBreakdown,
         operatorBreakdown,
+        salesList,
         isOwner,
       };
     }, { operationName: "GET Voucher Recap" });

@@ -92,6 +92,8 @@ export default function VoucherClient({
   const [recapMonth, setRecapMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [recapData, setRecapData] = useState<any>(null);
   const [recapLoading, setRecapLoading] = useState<boolean>(false);
+  const [recapSourceFilter, setRecapSourceFilter] = useState<"ALL" | "POS" | "DAILY_RECORD">("ALL");
+  const [recapSearch, setRecapSearch] = useState<string>("");
 
   const fetchRecapData = async (
     range = recapRange,
@@ -477,6 +479,21 @@ export default function VoucherClient({
   // Aggregated today sales summary
   const todayTotalQty = todaySales.reduce((sum, item) => sum + item.quantity, 0);
   const todayTotalAmount = todaySales.reduce((sum, item) => sum + item.subtotal, 0);
+
+  // Filtered recap sales list
+  const filteredRecapSales = (recapData?.salesList || []).filter((s: any) => {
+    const matchesSource =
+      recapSourceFilter === "ALL" || s.source === recapSourceFilter;
+    const q = recapSearch.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      s.invoiceNumber.toLowerCase().includes(q) ||
+      s.itemName.toLowerCase().includes(q) ||
+      s.operator.toLowerCase().includes(q) ||
+      (s.customerName && s.customerName.toLowerCase().includes(q)) ||
+      (s.cashierName && s.cashierName.toLowerCase().includes(q));
+    return matchesSource && matchesSearch;
+  });
 
   return (
     <div className="space-y-6">
@@ -1132,6 +1149,259 @@ export default function VoucherClient({
               </div>
             </div>
           )}
+
+          {/* TABEL LIST RINCIAN TRANSAKSI PENJUALAN VOUCHER (KASIR POS & PENCATATAN SISA STOK) */}
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4">
+            <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                  <span>Daftar Transaksi Penjualan Voucher</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Daftar transaksi voucher yang terjual baik dari <strong>Kasir POS</strong> maupun <strong>Pencatatan Sisa Stok</strong>
+                </p>
+              </div>
+
+              {/* Filter Sumber & Search */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Source Filter Pills */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setRecapSourceFilter("ALL")}
+                    className={`px-3 py-1.5 rounded-xl transition-all ${
+                      recapSourceFilter === "ALL"
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    Semua ({recapData?.salesList?.length || 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecapSourceFilter("POS")}
+                    className={`px-3 py-1.5 rounded-xl transition-all ${
+                      recapSourceFilter === "POS"
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    Kasir POS ({recapData?.summary?.posCount || 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecapSourceFilter("DAILY_RECORD")}
+                    className={`px-3 py-1.5 rounded-xl transition-all ${
+                      recapSourceFilter === "DAILY_RECORD"
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    Sisa Stok ({recapData?.summary?.dailyRecordCount || 0})
+                  </button>
+                </div>
+
+                {/* Search */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={recapSearch}
+                    onChange={(e) => setRecapSearch(e.target.value)}
+                    placeholder="Cari no. faktur / voucher / pelanggan..."
+                    className="bg-white border border-slate-200 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {recapSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setRecapSearch("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto px-5 pb-5">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <th className="py-3 px-3">Waktu</th>
+                    <th className="py-3 px-3">Sumber</th>
+                    <th className="py-3 px-3">No. Faktur</th>
+                    <th className="py-3 px-3">Voucher & Nominal</th>
+                    <th className="py-3 px-3 text-center">Jumlah (Qty)</th>
+                    <th className="py-3 px-3 text-right">Harga Jual</th>
+                    <th className="py-3 px-3 text-right">Total Uang</th>
+                    <th className="py-3 px-3 text-right">
+                      {userRole === "OWNER" ? "Laba" : "Laba"}
+                    </th>
+                    <th className="py-3 px-3 text-center">Metode & Status</th>
+                    <th className="py-3 px-3">Pelanggan / Kasir</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {recapLoading ? (
+                    <tr>
+                      <td colSpan={10} className="py-8 text-center text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-1 text-indigo-600" />
+                        <span>Memuat data transaksi...</span>
+                      </td>
+                    </tr>
+                  ) : filteredRecapSales.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-10 text-center text-slate-400">
+                        <p className="font-semibold text-slate-600">Tidak ada transaksi voucher ditemukan</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {recapSearch
+                            ? "Coba ganti kata kunci pencarian Anda"
+                            : "Belum ada transaksi voucher pada periode dan filter sumber yang dipilih"}
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRecapSales.map((item: any) => {
+                      const date = new Date(item.createdAt);
+                      const dateStr = date.toLocaleDateString("id-ID", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      });
+                      const timeStr = date.toLocaleTimeString("id-ID", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                          {/* Waktu */}
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            <div className="font-bold text-slate-900">{dateStr}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{timeStr} WIB</div>
+                          </td>
+
+                          {/* Sumber */}
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            {item.source === "POS" ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[10px] font-extrabold">
+                                🛒 Kasir POS
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-extrabold">
+                                📝 Sisa Stok
+                              </span>
+                            )}
+                          </td>
+
+                          {/* No Faktur */}
+                          <td className="py-3.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                            #{item.invoiceNumber}
+                          </td>
+
+                          {/* Voucher & Nominal */}
+                          <td className="py-3.5 px-3">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-lg text-xs font-bold border ${getOperatorBadgeClass(item.operator)}`}>
+                                {item.operator}
+                              </span>
+                              <span className="font-extrabold text-slate-800">{item.itemName}</span>
+                            </div>
+                          </td>
+
+                          {/* Quantity */}
+                          <td className="py-3.5 px-3 text-center font-black text-slate-900 text-sm whitespace-nowrap">
+                            {item.quantity} pcs
+                          </td>
+
+                          {/* Harga Satuan */}
+                          <td className="py-3.5 px-3 text-right font-medium text-slate-600 whitespace-nowrap">
+                            {formatRupiah(item.unitPrice)}
+                          </td>
+
+                          {/* Total Uang */}
+                          <td className="py-3.5 px-3 text-right font-extrabold text-emerald-600 whitespace-nowrap">
+                            {formatRupiah(item.subtotal)}
+                          </td>
+
+                          {/* Laba */}
+                          <td className="py-3.5 px-3 text-right font-extrabold whitespace-nowrap">
+                            {userRole === "OWNER" ? (
+                              <span className={item.isRealized ? "text-amber-700" : "text-slate-400"}>
+                                {item.isRealized ? formatRupiah(item.profit) : "(Tertunda)"}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">Terkunci</span>
+                            )}
+                          </td>
+
+                          {/* Metode & Status */}
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-100 text-slate-700">
+                                {item.paymentMethod === "CREDIT" ? "KREDIT / NOTA" : item.paymentMethod}
+                              </span>
+                              {item.paymentStatus === "PAID" ? (
+                                <span className="text-[9px] font-bold text-emerald-600">● Lunas</span>
+                              ) : (
+                                <span className="text-[9px] font-bold text-rose-600">● Belum Lunas</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Pelanggan / Kasir */}
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            {item.customerName ? (
+                              <div>
+                                <span className="font-extrabold text-slate-900 text-xs">
+                                  {item.customerName}
+                                </span>
+                                <div className="text-[10px] text-slate-400">
+                                  Kasir: {item.cashierName}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500 text-xs">
+                                Kasir: {item.cashierName}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+
+                  {/* Summary row */}
+                  {filteredRecapSales.length > 0 && (
+                    <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-200 text-slate-900">
+                      <td colSpan={4} className="py-3.5 px-3 text-slate-700 font-extrabold">
+                        Total {filteredRecapSales.length} Transaksi Terfilter
+                      </td>
+                      <td className="py-3.5 px-3 text-center font-black text-slate-900 text-sm">
+                        {filteredRecapSales.reduce((sum: number, s: any) => sum + s.quantity, 0)} pcs
+                      </td>
+                      <td></td>
+                      <td className="py-3.5 px-3 text-right font-extrabold text-emerald-600">
+                        {formatRupiah(filteredRecapSales.reduce((sum: number, s: any) => sum + s.subtotal, 0))}
+                      </td>
+                      <td className="py-3.5 px-3 text-right font-extrabold">
+                        {userRole === "OWNER" ? (
+                          <span className="text-amber-700">
+                            {formatRupiah(filteredRecapSales.reduce((sum: number, s: any) => sum + s.profit, 0))}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">Terkunci</span>
+                        )}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
