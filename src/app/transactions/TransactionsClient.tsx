@@ -1043,6 +1043,13 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                 </span>
               </div>
 
+              {selectedTransaction.customerName && (
+                <div className="flex justify-between text-[11px] font-bold text-indigo-700">
+                  <span>Pelanggan:</span>
+                  <span>{selectedTransaction.customerName}</span>
+                </div>
+              )}
+
               {/* Items List */}
               <div className="py-2 border-y border-dashed border-slate-300 space-y-1.5">
                 {selectedTransaction.rawItems?.map((item, idx) => (
