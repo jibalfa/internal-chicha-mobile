@@ -27,8 +27,21 @@ export async function GET(request: NextRequest) {
     };
 
     // 1. Fetch Sales (POS Retail & Vouchers)
-    const sales = await prisma.sale.findMany({
-      where: { createdAt: dateFilter },
+    // Non-kredit dihitung berdasarkan createdAt, Kredit dihitung berdasarkan paidAt saat lunas
+    const sales = await (prisma.sale.findMany as any)({
+      where: {
+        OR: [
+          {
+            paymentMethod: { not: "CREDIT" },
+            createdAt: dateFilter,
+          },
+          {
+            paymentMethod: "CREDIT",
+            paymentStatus: "PAID",
+            paidAt: dateFilter,
+          },
+        ],
+      },
       include: {
         items: {
           include: {

@@ -24,6 +24,12 @@ import {
   Cable,
   Sparkles,
   HelpCircle,
+  FileText,
+  UserPlus,
+  Calendar,
+  Clock,
+  Edit2,
+  Check,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
 import {
@@ -54,6 +60,14 @@ interface Voucher {
   stock: number;
 }
 
+interface Customer {
+  id: string;
+  name: string;
+  phone: string | null;
+  address?: string | null;
+  notes?: string | null;
+}
+
 interface CartItem {
   id: string;
   itemType: "PRODUCT" | "VOUCHER";
@@ -61,6 +75,7 @@ interface CartItem {
   voucherId?: string | null;
   itemName: string;
   costPrice: number;
+  originalPrice: number;
   unitPrice: number;
   quantity: number;
   maxStock: number;
@@ -81,18 +96,23 @@ interface StoreSettingState {
 interface PosClientProps {
   initialProducts: Product[];
   initialVouchers: Voucher[];
+  initialCustomers?: Customer[];
   cashierName: string;
+  userRole?: string;
   initialStoreSetting?: StoreSettingState | null;
 }
 
 export default function PosClient({
   initialProducts,
   initialVouchers,
+  initialCustomers = [],
   cashierName,
+  userRole = "CASHIER",
   initialStoreSetting,
 }: PosClientProps) {
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [vouchers, setVouchers] = useState<Voucher[]>(initialVouchers);
+  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
 
   // Store Setting State
   const [storeSetting, setStoreSetting] = useState<StoreSettingState>(() => {
@@ -103,7 +123,9 @@ export default function PosClient({
         tagline: localStorage.getItem("chicha_store_tagline") || "Pusat Aksesoris & Pulsa",
         address: localStorage.getItem("chicha_store_address") || "Jl. Toko ChiCha Mobile",
         phone: localStorage.getItem("chicha_store_phone") || "0812-3456-7890",
-        receiptFooter: localStorage.getItem("chicha_store_footer") || "Barang yang dibeli tidak dapat ditukar/dikembalikan.\nTerima kasih atas kunjungan Anda!",
+        receiptFooter:
+          localStorage.getItem("chicha_store_footer") ||
+          "Barang yang dibeli tidak dapat ditukar/dikembalikan.\nTerima kasih atas kunjungan Anda!",
         printCopies: parseInt(localStorage.getItem("chicha_print_copies") || "1", 10) || 1,
         paperWidth: (localStorage.getItem("chicha_paper_width") as "58mm" | "80mm") || "58mm",
         autoPrint: false,
@@ -114,7 +136,8 @@ export default function PosClient({
       tagline: "Pusat Aksesoris & Pulsa",
       address: "Jl. Toko ChiCha Mobile",
       phone: "0812-3456-7890",
-      receiptFooter: "Barang yang dibeli tidak dapat ditukar/dikembalikan.\nTerima kasih atas kunjungan Anda!",
+      receiptFooter:
+        "Barang yang dibeli tidak dapat ditukar/dikembalikan.\nTerima kasih atas kunjungan Anda!",
       printCopies: 1,
       paperWidth: "58mm",
       autoPrint: false,
@@ -125,11 +148,54 @@ export default function PosClient({
   const [activeCatalog, setActiveCatalog] = useState<"ALL" | "PRODUCTS" | "VOUCHERS">("ALL");
   const [search, setSearch] = useState("");
 
-  // Cart State
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [discount, setDiscount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER" | "QRIS">("CASH");
+  // Customer State
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chicha_pos_customer");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  });
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    name: "",
+    phone: "",
+    address: "",
+  });
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [customerModalTab, setCustomerModalTab] = useState<"PICK" | "CREATE">("PICK");
+
+  // Cart State with Local Storage persistence
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chicha_pos_cart");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          return [];
+        }
+      }
+    }
+    return [];
+  });
+
+  // Payment Method State: Tunai, QRIS, Transfer, Kredit/Nota
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER" | "QRIS" | "CREDIT">("CASH");
   const [cashGiven, setCashGiven] = useState<number>(0);
+  const [creditDueDate, setCreditDueDate] = useState<string>("");
+  const [creditNotes, setCreditNotes] = useState<string>("");
+
+  // Item Price Edit Modal / Inline State
+  const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null);
+  const [tempEditPrice, setTempEditPrice] = useState<string>("");
 
   // Checkout Status & Receipt Modal
   const [loading, setLoading] = useState(false);
@@ -144,10 +210,29 @@ export default function PosClient({
   const [printerError, setPrinterError] = useState<string | null>(null);
   const [printerPrinting, setPrinterPrinting] = useState<boolean>(false);
   const [printFeedback, setPrintFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [paperWidth, setPaperWidth] = useState<"58mm" | "80mm">((storeSetting.paperWidth as any) === "80mm" ? "80mm" : "58mm");
+  const [paperWidth, setPaperWidth] = useState<"58mm" | "80mm">(
+    (storeSetting.paperWidth as any) === "80mm" ? "80mm" : "58mm"
+  );
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState<boolean>(false);
 
-  // Auto-connect to previously paired printer on mount (CUKUP SEKALI)
+  // Sync cart & customer to local storage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chicha_pos_cart", JSON.stringify(cart));
+    }
+  }, [cart]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (selectedCustomer) {
+        localStorage.setItem("chicha_pos_customer", JSON.stringify(selectedCustomer));
+      } else {
+        localStorage.removeItem("chicha_pos_customer");
+      }
+    }
+  }, [selectedCustomer]);
+
+  // Auto-connect to previously paired printer on mount
   useEffect(() => {
     printerManager.tryAutoConnect().then((res) => {
       if (res.success) {
@@ -164,7 +249,7 @@ export default function PosClient({
     });
   }, []);
 
-  // Connect via Web Serial (Bluetooth Outgoing COM / USB) - Recommended for Windows
+  // Connect via Web Serial
   const handleConnectSerial = async () => {
     setPrinterConnecting(true);
     setPrinterError(null);
@@ -185,7 +270,7 @@ export default function PosClient({
     }
   };
 
-  // Connect via Web Bluetooth BLE (Mobile / BLE)
+  // Connect via Web Bluetooth BLE
   const handleConnectBluetoothBLE = async () => {
     setPrinterConnecting(true);
     setPrinterError(null);
@@ -227,7 +312,7 @@ export default function PosClient({
     }
   };
 
-  // Direct 1-Click Thermal Receipt Print with Custom Settings & Multi-Copies
+  // Direct 1-Click Thermal Receipt Print
   const handlePrintReceiptThermal = async (sale: any) => {
     if (!sale) return;
 
@@ -244,9 +329,10 @@ export default function PosClient({
         invoiceNumber: sale.invoiceNumber,
         createdAt: sale.createdAt,
         cashierName: sale.cashier?.name || cashierName,
+        customerName: sale.customerName || sale.customer?.name || "",
         paymentMethod: sale.paymentMethod,
         totalAmount: sale.totalAmount,
-        discount: sale.discount,
+        discount: 0,
         finalAmount: sale.finalAmount,
         cashGiven: sale.cashGiven,
         changeGiven: sale.changeGiven,
@@ -281,10 +367,11 @@ export default function PosClient({
     }
   };
 
-  // Calculations
+  // Calculations: Total is pure subtotal without discount
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const finalTotal = Math.max(0, subtotal - discount);
+  const finalTotal = subtotal;
   const changeGiven = paymentMethod === "CASH" ? Math.max(0, cashGiven - finalTotal) : 0;
+  const remainingDebt = paymentMethod === "CREDIT" ? Math.max(0, finalTotal - cashGiven) : 0;
 
   // Add Product to Cart
   const addProductToCart = (p: Product) => {
@@ -307,6 +394,7 @@ export default function PosClient({
           productId: p.id,
           itemName: p.name,
           costPrice: p.costPrice,
+          originalPrice: p.sellingPrice,
           unitPrice: p.sellingPrice,
           quantity: 1,
           maxStock: p.stock,
@@ -336,6 +424,7 @@ export default function PosClient({
           voucherId: v.id,
           itemName: `Voucher ${v.operator} ${v.nominal}`,
           costPrice: v.costPrice,
+          originalPrice: v.sellingPrice,
           unitPrice: v.sellingPrice,
           quantity: 1,
           maxStock: v.stock,
@@ -359,12 +448,59 @@ export default function PosClient({
     );
   };
 
+  // Edit Item Unit Price
+  const startEditPrice = (item: CartItem) => {
+    setEditingPriceItemId(item.id);
+    setTempEditPrice(String(item.unitPrice));
+  };
+
+  const saveEditPrice = (id: string) => {
+    const parsed = Math.max(0, parseInt(tempEditPrice, 10) || 0);
+    setCart(
+      cart.map((item) => (item.id === id ? { ...item, unitPrice: parsed } : item))
+    );
+    setEditingPriceItemId(null);
+  };
+
   const removeFromCart = (id: string) => {
     setCart(cart.filter((item) => item.id !== id));
   };
 
+  // Customer Management
+  const handleSaveNewCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomerForm.name.trim()) return;
+
+    setIsCreatingCustomer(true);
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCustomerForm),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal membuat pelanggan baru");
+
+      const createdCustomer = data.customer;
+      setCustomers([createdCustomer, ...customers]);
+      setSelectedCustomer(createdCustomer);
+      setIsCustomerModalOpen(false);
+      setNewCustomerForm({ name: "", phone: "", address: "" });
+      setCustomerModalTab("PICK");
+    } catch (err: any) {
+      setErrorMessage(err.message);
+    } finally {
+      setIsCreatingCustomer(false);
+    }
+  };
+
+  // Checkout Handler with Connection Resilience
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+
     if (paymentMethod === "CASH" && cashGiven < finalTotal) {
       setErrorMessage(
         `Uang tunai pembayaran (${formatRupiah(cashGiven)}) kurang dari total tagihan (${formatRupiah(
@@ -374,31 +510,53 @@ export default function PosClient({
       return;
     }
 
+    if (paymentMethod === "CREDIT" && !selectedCustomer?.name?.trim()) {
+      setErrorMessage(
+        "Transaksi Kredit / Nota wajib memilih pelanggan. Silakan klik 'Pilih Pelanggan' terlebih dahulu."
+      );
+      setIsCustomerModalOpen(true);
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(null);
 
     try {
+      const payload = {
+        items: cart.map((i) => ({
+          itemType: i.itemType,
+          productId: i.productId || null,
+          voucherId: i.voucherId || null,
+          itemName: i.itemName,
+          quantity: i.quantity,
+          costPrice: i.costPrice,
+          unitPrice: i.unitPrice,
+        })),
+        discount: 0,
+        paymentMethod,
+        cashGiven:
+          paymentMethod === "CASH"
+            ? Number(cashGiven)
+            : paymentMethod === "CREDIT"
+            ? Number(cashGiven || 0)
+            : finalTotal,
+        customerId: selectedCustomer?.id || null,
+        customerName: selectedCustomer?.name || null,
+        customerPhone: selectedCustomer?.phone || null,
+        dueDate: paymentMethod === "CREDIT" && creditDueDate ? creditDueDate : null,
+        notes: creditNotes?.trim() || null,
+      };
+
       const res = await fetch("/api/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: cart.map((i) => ({
-            itemType: i.itemType,
-            productId: i.productId || null,
-            voucherId: i.voucherId || null,
-            itemName: i.itemName,
-            quantity: i.quantity,
-            costPrice: i.costPrice,
-            unitPrice: i.unitPrice,
-          })),
-          discount: Number(discount || 0),
-          paymentMethod,
-          cashGiven: paymentMethod === "CASH" ? Number(cashGiven) : finalTotal,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal memproses transaksi");
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal memproses transaksi ke database.");
+      }
 
       // Update local product and voucher stock state
       setProducts(
@@ -416,11 +574,15 @@ export default function PosClient({
         })
       );
 
-      // Display receipt modal & reset cart
+      // Display receipt modal & reset cart & storage
       setCompletedSale(data.sale);
       setCart([]);
-      setDiscount(0);
       setCashGiven(0);
+      setCreditDueDate("");
+      setCreditNotes("");
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("chicha_pos_cart");
+      }
 
       // Auto-print if Printer is already connected
       if (printerManager.isConnected()) {
@@ -429,7 +591,9 @@ export default function PosClient({
         }, 300);
       }
     } catch (err: any) {
-      setErrorMessage(err.message);
+      setErrorMessage(
+        `${err.message}. Data keranjang tetap aman tersimpan. Anda dapat mencoba kembali tanpa perlu input ulang.`
+      );
     } finally {
       setLoading(false);
     }
@@ -451,52 +615,67 @@ export default function PosClient({
         v.nominal.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const filteredCustomers = customers.filter(
+    (c) =>
+      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      (c.phone && c.phone.includes(customerSearch))
+  );
+
   return (
-    <div className="space-y-4">
-      {/* Top POS Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+    <div className="space-y-5">
+      {/* Top Bar: Store & Printer Status Bar */}
+      <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <ShoppingCart className="w-6 h-6 text-indigo-600" />
-            <span>Kasir Penjualan (POS)</span>
-          </h1>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <h1 className="text-lg font-black tracking-tight text-slate-900">
+              Kasir (Point of Sale)
+            </h1>
+            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-extrabold uppercase border border-indigo-200/60">
+              {userRole === "OWNER" ? "Owner / Admin" : "Kasir"}
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Kasir Bertugas: <span className="font-semibold text-slate-800">{cashierName}</span>
+            Petugas Kasir: <strong className="text-slate-800">{cashierName}</strong> • {storeSetting.name}
           </p>
         </div>
 
-        {/* Printer Status Widget in Header */}
+        {/* Printer Quick Status & Action */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
+          {printFeedback && (
+            <div
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 animate-in fade-in ${
+                printFeedback.type === "success"
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  : "bg-rose-50 text-rose-700 border border-rose-200"
+              }`}
+            >
+              <span>{printFeedback.text}</span>
+            </div>
+          )}
+
           {printerConnected ? (
-            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3.5 py-1.5 rounded-xl text-xs text-emerald-800 shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              {printerConnectionType === "SERIAL" ? (
-                <Cable className="w-4 h-4 text-emerald-600" />
-              ) : (
-                <Bluetooth className="w-4 h-4 text-emerald-600" />
-              )}
-              <div className="flex flex-col">
-                <span className="font-extrabold text-[11px] leading-tight text-emerald-900">
-                  {printerName || "Printer Thermal"}
-                </span>
-                <span className="text-[10px] text-emerald-600 font-medium">Siap Cetak Struk</span>
+            <div className="flex items-center gap-2">
+              <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs font-bold text-emerald-800">
+                <Bluetooth className="w-4 h-4 text-emerald-600 animate-pulse" />
+                <span className="truncate max-w-[130px]">{printerName || "Printer Siap"}</span>
               </div>
               <button
                 type="button"
                 onClick={handleTestPrint}
                 disabled={printerPrinting}
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
                 title="Test Cetak Struk"
-                className="ml-2 px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold transition-colors"
               >
-                {printerPrinting ? "..." : "Test"}
+                Test
               </button>
               <button
                 type="button"
                 onClick={handleDisconnectPrinter}
-                title="Putuskan koneksi printer"
-                className="text-slate-400 hover:text-rose-600 p-0.5"
+                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition-all"
+                title="Putuskan Printer"
               >
-                <X className="w-3.5 h-3.5" />
+                Putus
               </button>
             </div>
           ) : (
@@ -513,25 +692,6 @@ export default function PosClient({
           )}
         </div>
       </div>
-
-      {/* Printer Error Banner if any */}
-      {printerError && (
-        <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-2xl flex items-start justify-between gap-2 animate-in fade-in">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-amber-900">Koneksi Printer:</p>
-              <p className="text-amber-800 text-[11px] mt-0.5">{printerError}</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setPrinterError(null)}
-            className="text-amber-600 hover:text-amber-800 text-xs font-bold"
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       {/* Main Grid: Catalog Browser (Left) vs Cart (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -678,6 +838,7 @@ export default function PosClient({
 
         {/* RIGHT COLUMN: SHOPPING CART & CHECKOUT */}
         <div className="lg:col-span-5 xl:col-span-4 bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/50 p-5 space-y-4 sticky top-20">
+          {/* Cart Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-indigo-600" />
@@ -686,14 +847,39 @@ export default function PosClient({
             {cart.length > 0 && (
               <button
                 onClick={() => setCart([])}
-                className="text-xs text-rose-500 hover:text-rose-700 font-medium"
+                className="text-xs text-rose-500 hover:text-rose-700 font-semibold"
               >
                 Kosongkan
               </button>
             )}
           </div>
 
-
+          {/* CUSTOMER SELECTION CARD */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                <User className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Pelanggan
+                </p>
+                <p className="text-xs font-extrabold text-slate-900 truncate">
+                  {selectedCustomer ? selectedCustomer.name : "Pelanggan Umum (Non-Member)"}
+                </p>
+                {selectedCustomer?.phone && (
+                  <p className="text-[10px] text-slate-500">{selectedCustomer.phone}</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCustomerModalOpen(true)}
+              className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-xl text-xs font-bold text-indigo-600 transition-all shrink-0 shadow-sm"
+            >
+              {selectedCustomer ? "Ganti" : "Pilih"}
+            </button>
+          </div>
 
           {/* Cart Items List */}
           <div className="space-y-2 max-h-56 overflow-y-auto divide-y divide-slate-100 pr-1">
@@ -705,82 +891,111 @@ export default function PosClient({
               </div>
             ) : (
               cart.map((item) => (
-                <div key={item.id} className="pt-2 flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-800 truncate">{item.itemName}</p>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      {formatRupiah(item.unitPrice)}
-                    </p>
-                  </div>
+                <div key={item.id} className="pt-2 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate">{item.itemName}</p>
+                      
+                      {/* Price display with edit trigger */}
+                      {editingPriceItemId === item.id ? (
+                        <div className="flex items-center gap-1 mt-1">
+                          <input
+                            type="number"
+                            min={0}
+                            value={tempEditPrice}
+                            onChange={(e) => setTempEditPrice(e.target.value)}
+                            className="w-24 px-1.5 py-0.5 text-xs font-mono font-bold border border-indigo-400 rounded bg-white text-indigo-700"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveEditPrice(item.id)}
+                            className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-[10px]"
+                            title="Simpan Harga"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingPriceItemId(null)}
+                            className="p-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-[10px]"
+                            title="Batal"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => startEditPrice(item)}
+                            className="group flex items-center gap-1 text-[11px] font-mono font-semibold text-slate-600 hover:text-indigo-600 transition-colors"
+                            title="Klik untuk ubah harga jual"
+                          >
+                            <span>{formatRupiah(item.unitPrice)}</span>
+                            <Edit2 className="w-2.5 h-2.5 text-slate-400 group-hover:text-indigo-600" />
+                          </button>
+                          {item.unitPrice !== item.originalPrice && (
+                            <span className="px-1 py-0.2 text-[9px] bg-amber-50 text-amber-700 font-bold rounded border border-amber-200">
+                              Khusus
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Quantity Controls */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => updateQuantity(item.id, -1)}
-                      className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="w-6 text-center text-xs font-bold text-slate-900">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => updateQuantity(item.id, 1)}
-                      disabled={item.quantity >= item.maxStock}
-                      className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center disabled:opacity-40"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
+                    {/* Quantity Controls */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => updateQuantity(item.id, -1)}
+                        className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-6 text-center text-xs font-bold text-slate-900">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(item.id, 1)}
+                        disabled={item.quantity >= item.maxStock}
+                        className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center disabled:opacity-40"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
 
-                  {/* Item Subtotal & Delete */}
-                  <div className="text-right flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 w-16">
-                      {formatRupiah(item.unitPrice * item.quantity)}
-                    </span>
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      className="text-slate-300 hover:text-rose-500 p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {/* Subtotal & Delete */}
+                    <div className="text-right flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 w-16">
+                        {formatRupiah(item.unitPrice * item.quantity)}
+                      </span>
+                      <button
+                        onClick={() => removeFromCart(item.id)}
+                        className="text-slate-300 hover:text-rose-500 p-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))
             )}
           </div>
 
-          {/* Pricing & Discount */}
+          {/* Pricing Summary (No Discount Field) */}
           <div className="border-t border-slate-100 pt-3 space-y-2 text-xs">
-            <div className="flex justify-between text-slate-600">
-              <span>Subtotal Item</span>
-              <span className="font-bold text-slate-900">{formatRupiah(subtotal)}</span>
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-600">Diskon (Rp)</span>
-              <input
-                type="number"
-                min={0}
-                value={discount || ""}
-                onChange={(e) => setDiscount(Math.max(0, Number(e.target.value)))}
-                placeholder="0"
-                className="w-28 text-right bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-1 border-t border-dashed border-slate-200">
+            <div className="flex justify-between items-center text-sm font-black text-slate-900 pt-1">
               <span>Total Tagihan</span>
-              <span className="text-base text-indigo-600">{formatRupiah(finalTotal)}</span>
+              <span className="text-lg text-indigo-600">{formatRupiah(finalTotal)}</span>
             </div>
           </div>
 
-          {/* Payment Method Selector */}
+          {/* Payment Method Selector (CASH, QRIS, TRANSFER, KREDIT/NOTA) */}
           <div className="space-y-1.5 pt-1">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
               Metode Pembayaran
             </label>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-4 gap-1.5">
               <button
                 type="button"
                 onClick={() => setPaymentMethod("CASH")}
@@ -819,10 +1034,28 @@ export default function PosClient({
                 <CreditCard className="w-4 h-4" />
                 <span>Transfer</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPaymentMethod("CREDIT");
+                  if (!selectedCustomer) {
+                    setIsCustomerModalOpen(true);
+                  }
+                }}
+                className={`py-2 px-1 rounded-xl text-xs font-bold border flex flex-col items-center gap-1 transition-all ${
+                  paymentMethod === "CREDIT"
+                    ? "bg-amber-50 border-amber-500 text-amber-800 shadow-sm"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span className="truncate">Kredit/Nota</span>
+              </button>
             </div>
           </div>
 
-          {/* Cash Payment Controls */}
+          {/* CASH PAYMENT CONTROLS */}
           {paymentMethod === "CASH" && (
             <div className="space-y-2 pt-1 bg-slate-50 p-3 rounded-2xl border border-slate-100">
               <div className="flex items-center justify-between text-xs">
@@ -868,11 +1101,80 @@ export default function PosClient({
             </div>
           )}
 
-          {/* Error Banner */}
+          {/* KREDIT / NOTA CONTROLS */}
+          {paymentMethod === "CREDIT" && (
+            <div className="space-y-2.5 pt-1 bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200 text-xs">
+              {!selectedCustomer && (
+                <div className="p-2 bg-amber-100/80 rounded-xl text-amber-900 font-bold text-[11px] flex items-center justify-between">
+                  <span>Wajib pilih pelanggan untuk nota kredit!</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomerModalOpen(true)}
+                    className="underline text-indigo-700 font-black"
+                  >
+                    Pilih
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-amber-900">Uang Muka / DP (Rp):</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={finalTotal}
+                  value={cashGiven || ""}
+                  onChange={(e) => setCashGiven(Math.max(0, Number(e.target.value)))}
+                  placeholder="0 (Tanpa DP)"
+                  className="w-32 text-right bg-white border border-amber-300 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-900 focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-amber-900">Jatuh Tempo:</span>
+                <input
+                  type="date"
+                  value={creditDueDate}
+                  onChange={(e) => setCreditDueDate(e.target.value)}
+                  className="bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs text-slate-800"
+                />
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  value={creditNotes}
+                  onChange={(e) => setCreditNotes(e.target.value)}
+                  placeholder="Catatan nota bon piutang..."
+                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1 text-xs text-slate-800 placeholder-amber-400"
+                />
+              </div>
+
+              <div className="flex justify-between items-center text-xs pt-1.5 border-t border-amber-200">
+                <span className="font-bold text-amber-900">Sisa Tagihan Piutang:</span>
+                <span className="font-black text-sm text-rose-600">
+                  {formatRupiah(remainingDebt)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Error Banner with Retry button */}
           {errorMessage && (
-            <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-600 text-xs rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">{errorMessage}</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCheckout}
+                disabled={loading}
+                className="w-full py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] transition-colors flex items-center justify-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                <span>Coba Simpan Ulang Transaksi</span>
+              </button>
             </div>
           )}
 
@@ -880,19 +1182,202 @@ export default function PosClient({
           <button
             onClick={handleCheckout}
             disabled={loading || cart.length === 0}
-            className="w-full py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-[0.99] text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-40 cursor-pointer"
+            className={`w-full py-3 text-white font-extrabold text-sm rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all disabled:opacity-40 cursor-pointer active:scale-[0.99] ${
+              paymentMethod === "CREDIT"
+                ? "bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 shadow-amber-600/30"
+                : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-indigo-600/30"
+            }`}
           >
             {loading ? (
-              <span>Memproses...</span>
+              <span className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Menghubungkan ke database...
+              </span>
             ) : (
               <>
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Bayar Transaksi ({formatRupiah(finalTotal)})</span>
+                <span>
+                  {paymentMethod === "CREDIT"
+                    ? `Buat Nota Kredit (${formatRupiah(finalTotal)})`
+                    : `Bayar Transaksi (${formatRupiah(finalTotal)})`}
+                </span>
               </>
             )}
           </button>
         </div>
       </div>
+
+      {/* MODAL PEMILIHAN & PENAMBAHAN PELANGGAN */}
+      {isCustomerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Pelanggan Transaksi</h3>
+                  <p className="text-xs text-slate-400">Pilih atau daftarkan pelanggan</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCustomerModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Tab: Pilih Pelanggan vs Pelanggan Baru */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setCustomerModalTab("PICK")}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  customerModalTab === "PICK"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Pilih Pelanggan
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomerModalTab("CREATE")}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  customerModalTab === "CREATE"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                + Pelanggan Baru
+              </button>
+            </div>
+
+            {customerModalTab === "PICK" ? (
+              <div className="space-y-3">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    placeholder="Cari nama atau telepon pelanggan..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Default General Customer option */}
+                <div
+                  onClick={() => {
+                    setSelectedCustomer(null);
+                    setIsCustomerModalOpen(false);
+                  }}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                    selectedCustomer === null
+                      ? "bg-indigo-50/70 border-indigo-300 text-indigo-900"
+                      : "bg-white border-slate-200 hover:bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  <div>
+                    <h5 className="font-extrabold text-xs">Pelanggan Umum (Non-Member)</h5>
+                    <p className="text-[10px] text-slate-400">Transaksi reguler tanpa pencatatan piutang</p>
+                  </div>
+                  {selectedCustomer === null && <Check className="w-4 h-4 text-indigo-600" />}
+                </div>
+
+                {/* Customers list */}
+                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                  {filteredCustomers.length === 0 ? (
+                    <div className="text-center py-6 text-slate-400 text-xs">
+                      Tidak ada pelanggan ditemukan. Buat baru di tab "+ Pelanggan Baru".
+                    </div>
+                  ) : (
+                    filteredCustomers.map((c) => (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setSelectedCustomer(c);
+                          setIsCustomerModalOpen(false);
+                        }}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                          selectedCustomer?.id === c.id
+                            ? "bg-indigo-50 border-indigo-400 text-indigo-900 font-bold"
+                            : "bg-white border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{c.name}</p>
+                          {c.phone && <p className="text-[10px] text-slate-500">{c.phone}</p>}
+                        </div>
+                        {selectedCustomer?.id === c.id && <Check className="w-4 h-4 text-indigo-600" />}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveNewCustomer} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Nama Lengkap *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newCustomerForm.name}
+                    onChange={(e) =>
+                      setNewCustomerForm({ ...newCustomerForm, name: e.target.value })
+                    }
+                    placeholder="Contoh: Pak Haji Bambang"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Nomor WhatsApp / HP
+                  </label>
+                  <input
+                    type="tel"
+                    value={newCustomerForm.phone}
+                    onChange={(e) =>
+                      setNewCustomerForm({ ...newCustomerForm, phone: e.target.value })
+                    }
+                    placeholder="0812xxxx"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Alamat / Catatan
+                  </label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.address}
+                    onChange={(e) =>
+                      setNewCustomerForm({ ...newCustomerForm, address: e.target.value })
+                    }
+                    placeholder="Alamat konter / rumah..."
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isCreatingCustomer}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  {isCreatingCustomer ? "Menyimpan..." : "Simpan & Pilih Pelanggan"}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MODAL PENGATURAN PRINTER THERMAL */}
       {isPrinterModalOpen && (
@@ -948,107 +1433,62 @@ export default function PosClient({
                   disabled={printerConnecting}
                   className="w-full mt-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <Cable className="w-4 h-4" />
-                  <span>{printerConnecting ? "Membuka Port..." : "Pilih Port Serial / Bluetooth (COM)"}</span>
+                  <Cable className="w-3.5 h-3.5" />
+                  <span>{printerConnecting ? "Menghubungkan..." : "Pilih Port Serial / Bluetooth"}</span>
                 </button>
               </div>
 
-              {/* Option 2: Bluetooth BLE */}
+              {/* Option 2: Web Bluetooth BLE */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                 <div className="flex items-center gap-2">
-                  <Bluetooth className="w-4 h-4 text-slate-700" />
-                  <span className="text-xs font-bold text-slate-900">
-                    Bluetooth Low Energy (BLE / Mobile)
+                  <Radio className="w-4 h-4 text-slate-700" />
+                  <span className="text-xs font-extrabold text-slate-900">
+                    Web Bluetooth BLE (Mobile / Android)
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Gunakan opsi ini jika Anda menggunakan smartphone/tablet Android atau printer nirkabel BLE khusus.
+                  Cocok untuk perangkat Android atau browser dengan dukungan native Web Bluetooth BLE.
                 </p>
                 <button
                   type="button"
                   onClick={handleConnectBluetoothBLE}
                   disabled={printerConnecting}
-                  className="w-full mt-1 py-2.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                  className="w-full mt-1 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-[0.99] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <Bluetooth className="w-4 h-4 text-indigo-600" />
-                  <span>{printerConnecting ? "Memindai Bluetooth..." : "Pindai Bluetooth BLE"}</span>
+                  <Bluetooth className="w-3.5 h-3.5" />
+                  <span>{printerConnecting ? "Memindai..." : "Pindai Perangkat Bluetooth"}</span>
                 </button>
               </div>
-            </div>
-
-            {/* Current Status Info */}
-            {printerConnected && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span className="text-xs font-bold text-emerald-900">{printerName}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleTestPrint}
-                    className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[10px] font-bold"
-                  >
-                    Test Cetak
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDisconnectPrinter}
-                    className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold"
-                  >
-                    Putuskan
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="text-center pt-1 border-t border-slate-100">
-              <p className="text-[11px] text-slate-400">
-                🔒 Konfigurasi tersimpan otomatis dan akan terhubung langsung di transaksi berikutnya.
-              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL RECEIPT / STRUK TRANSAKSI SUKSES DENGAN 1-KLIK THERMAL PRINTER */}
+      {/* MODAL STRUK TRANSAKSI SELESAI */}
       {completedSale && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in zoom-in-95">
             <div className="text-center space-y-1">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full mx-auto flex items-center justify-center">
-                <CheckCircle2 className="w-7 h-7" />
+              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h3 className="font-bold text-slate-900 text-lg">Transaksi Berhasil!</h3>
-              <p className="text-xs text-slate-500">Faktur #{completedSale.invoiceNumber}</p>
+              <h3 className="font-black text-slate-900 text-base">
+                {completedSale.paymentMethod === "CREDIT"
+                  ? "Nota Kredit Berhasil Dibuat!"
+                  : "Transaksi Berhasil!"}
+              </h3>
+              <p className="text-xs text-slate-500">
+                Faktur: <span className="font-mono font-bold text-slate-800">{completedSale.invoiceNumber}</span>
+              </p>
             </div>
 
-            {/* Print Feedback Notification */}
-            {printFeedback && (
-              <div
-                className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
-                  printFeedback.type === "success"
-                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                    : "bg-rose-50 text-rose-800 border border-rose-200"
-                }`}
-              >
-                {printFeedback.type === "success" ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                )}
-                <span>{printFeedback.text}</span>
-              </div>
-            )}
-
-            {/* Thermal Receipt Box */}
-            <div
-              id="printable-receipt"
-              className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs font-mono space-y-2 text-slate-700 max-h-60 overflow-y-auto"
-            >
-              <div className="text-center pb-2 border-b border-dashed border-slate-300">
+            {/* Receipt Preview Paper Container */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 font-mono text-xs space-y-2 text-slate-800">
+              <div className="text-center border-b border-dashed border-slate-300 pb-2">
                 <p className="font-bold text-sm text-slate-900">{storeSetting.name}</p>
-                {storeSetting.tagline && <p className="text-[10px] text-slate-600 font-semibold">{storeSetting.tagline}</p>}
+                {storeSetting.tagline && (
+                  <p className="text-[10px] text-slate-600 font-semibold">{storeSetting.tagline}</p>
+                )}
                 {storeSetting.address && <p className="text-[10px] text-slate-500">{storeSetting.address}</p>}
                 {storeSetting.phone && <p className="text-[10px] text-slate-500">Telp/WA: {storeSetting.phone}</p>}
                 <p className="text-[10px] text-slate-500 font-bold mt-1">{completedSale.invoiceNumber}</p>
@@ -1058,6 +1498,12 @@ export default function PosClient({
                 <span>Kasir: {completedSale.cashier?.name || cashierName}</span>
                 <span>{new Date(completedSale.createdAt).toLocaleTimeString("id-ID")}</span>
               </div>
+
+              {completedSale.customerName && (
+                <div className="text-[11px] font-bold text-indigo-700">
+                  Pelanggan: {completedSale.customerName}
+                </div>
+              )}
 
               <div className="py-2 border-y border-dashed border-slate-300 space-y-1">
                 {completedSale.items?.map((item: any) => (
@@ -1071,24 +1517,27 @@ export default function PosClient({
               </div>
 
               <div className="space-y-1 pt-1 text-[11px]">
-                <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>{formatRupiah(completedSale.totalAmount)}</span>
-                </div>
-                {completedSale.discount > 0 && (
-                  <div className="flex justify-between text-rose-600">
-                    <span>Diskon:</span>
-                    <span>-{formatRupiah(completedSale.discount)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between font-bold text-xs text-slate-900 pt-1 border-t border-slate-200">
                   <span>TOTAL:</span>
                   <span>{formatRupiah(completedSale.finalAmount)}</span>
                 </div>
                 <div className="flex justify-between text-slate-500">
-                  <span>Metode: {completedSale.paymentMethod}</span>
-                  <span>Bayar: {formatRupiah(completedSale.cashGiven)}</span>
+                  <span>
+                    Metode: {completedSale.paymentMethod === "CREDIT" ? "KREDIT / NOTA" : completedSale.paymentMethod}
+                  </span>
+                  <span>
+                    {completedSale.paymentMethod === "CREDIT" ? "DP:" : "Bayar:"}{" "}
+                    {formatRupiah(completedSale.cashGiven)}
+                  </span>
                 </div>
+
+                {completedSale.paymentMethod === "CREDIT" && (
+                  <div className="flex justify-between font-black text-rose-600 border-t border-dashed border-amber-300 pt-1">
+                    <span>SISA PIUTANG:</span>
+                    <span>{formatRupiah(Math.max(0, completedSale.finalAmount - completedSale.cashGiven))}</span>
+                  </div>
+                )}
+
                 {completedSale.paymentMethod === "CASH" && (
                   <div className="flex justify-between font-bold text-emerald-600">
                     <span>Kembalian:</span>
@@ -1098,39 +1547,13 @@ export default function PosClient({
               </div>
 
               <div className="text-center pt-2 text-[10px] text-slate-500 border-t border-dashed border-slate-300 whitespace-pre-line leading-relaxed">
-                {storeSetting.receiptFooter || "Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar/dikembalikan."}
+                {storeSetting.receiptFooter ||
+                  "Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar/dikembalikan."}
               </div>
             </div>
 
-            {/* Paper Width & Printer Status Selector */}
-            <div className="flex items-center justify-between px-1 text-xs">
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                <span className={`w-2 h-2 rounded-full ${printerConnected ? "bg-emerald-500" : "bg-slate-300"}`}></span>
-                <span className="truncate max-w-[160px] font-semibold">
-                  {printerConnected ? printerName || "Printer Siap" : "Printer Belum Terhubung"}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[10px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setPaperWidth("58mm")}
-                  className={`px-1.5 py-0.5 rounded ${paperWidth === "58mm" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                >
-                  58mm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaperWidth("80mm")}
-                  className={`px-1.5 py-0.5 rounded ${paperWidth === "80mm" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                >
-                  80mm
-                </button>
-              </div>
-            </div>
-
-            {/* Print Actions */}
+            {/* Actions */}
             <div className="space-y-2 pt-1">
-              {/* Primary 1-Click Thermal Print Button */}
               <button
                 onClick={() => handlePrintReceiptThermal(completedSale)}
                 disabled={printerPrinting}
@@ -1147,7 +1570,6 @@ export default function PosClient({
               </button>
 
               <div className="flex items-center gap-2">
-                {/* Fallback Standard Browser Print */}
                 <button
                   onClick={() => window.print()}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
@@ -1156,7 +1578,6 @@ export default function PosClient({
                   <span>Dialog Browser</span>
                 </button>
 
-                {/* Selesai / Close Button */}
                 <button
                   onClick={() => {
                     setCompletedSale(null);
@@ -1174,5 +1595,3 @@ export default function PosClient({
     </div>
   );
 }
-
-

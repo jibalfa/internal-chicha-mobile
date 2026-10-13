@@ -52,9 +52,20 @@ export const PAYMENT_METHOD = {
   CASH: "CASH",
   TRANSFER: "TRANSFER",
   QRIS: "QRIS",
+  CREDIT: "CREDIT",
 } as const;
 
 export type PaymentMethod = (typeof PAYMENT_METHOD)[keyof typeof PAYMENT_METHOD];
+
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface AuthSession {
   userId: string;

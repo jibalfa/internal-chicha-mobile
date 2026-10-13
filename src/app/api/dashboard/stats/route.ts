@@ -21,8 +21,21 @@ export async function GET() {
     };
 
     // 1. Sales Today (POS & Vouchers)
-    const salesToday = await prisma.sale.findMany({
-      where: { createdAt: todayFilter },
+    // Non-kredit dihitung berdasarkan createdAt, Kredit dihitung berdasarkan paidAt saat lunas
+    const salesToday = await (prisma.sale.findMany as any)({
+      where: {
+        OR: [
+          {
+            paymentMethod: { not: "CREDIT" },
+            createdAt: todayFilter,
+          },
+          {
+            paymentMethod: "CREDIT",
+            paymentStatus: "PAID",
+            paidAt: todayFilter,
+          },
+        ],
+      },
       include: { items: true },
     });
 

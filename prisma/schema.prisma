@@ -205,20 +205,42 @@ model DigitalTransaction {
   @@map("digital_transactions")
 }
 
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales     Sale[]
+
+  @@map("customers")
+}
+
 model Sale {
   id            String        @id @default(cuid())
   invoiceNumber String        @unique
   totalAmount   Float         @default(0)
   discount      Float         @default(0)
   finalAmount   Float         @default(0)
-  paymentMethod String        @default("CASH") // CASH, TRANSFER, QRIS
+  paymentMethod String        @default("CASH") // CASH, TRANSFER, QRIS, CREDIT
   cashGiven     Float         @default(0)
   changeGiven   Float         @default(0)
+  paymentStatus String        @default("PAID") // PAID, UNPAID, PARTIAL
+  dueDate       DateTime?
+  paidAt        DateTime?
+  paidMethod    String?       // CASH, TRANSFER, QRIS
   notes         String?
   cashierId     String?
+  customerId    String?
+  customerName  String?
+  customerPhone String?
   createdAt     DateTime      @default(now())
 
   cashier       User?         @relation(fields: [cashierId], references: [id])
+  customer      Customer?     @relation(fields: [customerId], references: [id])
   items         SaleItem[]
 
   @@map("sales")

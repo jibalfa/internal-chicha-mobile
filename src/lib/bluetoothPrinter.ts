@@ -114,6 +114,8 @@ export interface PrintSaleData {
   cashierName?: string;
   customerName?: string;
   paymentMethod: string;
+  paymentStatus?: string;
+  dueDate?: string | Date | null;
   totalAmount: number;
   discount: number;
   finalAmount: number;
@@ -205,8 +207,13 @@ export function buildSaleReceiptBuffer(
     .alignLeft()
     .twoColumns("No. Faktur", data.invoiceNumber)
     .twoColumns("Waktu", `${dateStr} ${timeStr}`)
-    .twoColumns("Kasir", data.cashierName || "Kasir")
-    .divider();
+    .twoColumns("Kasir", data.cashierName || "Kasir");
+
+  if (data.customerName && data.customerName.trim()) {
+    builder.twoColumns("Pelanggan", data.customerName.trim());
+  }
+
+  builder.divider();
 
   // 3. Items
   data.items.forEach((item) => {
@@ -226,18 +233,34 @@ export function buildSaleReceiptBuffer(
 
   builder
     .bold(true)
-    .twoColumns("TOTAL BAYAR", `Rp ${formatRupiahSimple(data.finalAmount)}`)
+    .twoColumns("TOTAL TAGIHAN", `Rp ${formatRupiahSimple(data.finalAmount)}`)
     .bold(false);
 
-  builder
-    .twoColumns("Metode Bayar", data.paymentMethod)
-    .twoColumns("Uang Diterima", formatRupiahSimple(data.cashGiven));
+  const methodLabel =
+    data.paymentMethod === "CREDIT" || data.paymentMethod === "KREDIT" || data.paymentMethod === "NOTA"
+      ? "KREDIT / NOTA"
+      : data.paymentMethod;
 
-  if (data.paymentMethod === "CASH") {
+  builder.twoColumns("Metode Bayar", methodLabel);
+
+  if (methodLabel === "KREDIT / NOTA") {
+    const sisa = Math.max(0, data.finalAmount - (data.cashGiven || 0));
+    if (data.cashGiven > 0) {
+      builder.twoColumns("Uang Muka (DP)", formatRupiahSimple(data.cashGiven));
+    }
     builder
       .bold(true)
-      .twoColumns("Kembalian", `Rp ${formatRupiahSimple(data.changeGiven)}`)
-      .bold(false);
+      .twoColumns("SISA PIUTANG", `Rp ${formatRupiahSimple(sisa)}`)
+      .bold(false)
+      .line("*** STATUS: BELUM LUNAS ***");
+  } else {
+    builder.twoColumns("Uang Diterima", formatRupiahSimple(data.cashGiven));
+    if (data.paymentMethod === "CASH") {
+      builder
+        .bold(true)
+        .twoColumns("Kembalian", `Rp ${formatRupiahSimple(data.changeGiven)}`)
+        .bold(false);
+    }
   }
 
   // 5. Footer

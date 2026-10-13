@@ -154,17 +154,19 @@ export async function GET(request: NextRequest) {
 
     if (search) {
       whereSale.OR = [
-        { invoiceNumber: { contains: search } },
-        { cashier: { name: { contains: search } } },
-        { items: { some: { itemName: { contains: search } } } },
+        { invoiceNumber: { contains: search, mode: "insensitive" } },
+        { customerName: { contains: search, mode: "insensitive" } },
+        { cashier: { name: { contains: search, mode: "insensitive" } } },
+        { items: { some: { itemName: { contains: search, mode: "insensitive" } } } },
       ];
     }
 
     const [totalCount, sales, allMatchingSales] = await Promise.all([
       prisma.sale.count({ where: whereSale }),
-      prisma.sale.findMany({
+      (prisma.sale.findMany as any)({
         where: whereSale,
         include: {
+          customer: true,
           cashier: { select: { id: true, name: true, username: true } },
           items: true,
         },
@@ -189,16 +191,18 @@ export async function GET(request: NextRequest) {
     let cashAmount = 0;
     let transferAmount = 0;
     let qrisAmount = 0;
+    let creditAmount = 0;
 
-    allMatchingSales.forEach((s) => {
+    allMatchingSales.forEach((s: any) => {
       totalRevenue += s.finalAmount || 0;
       totalDiscount += s.discount || 0;
       if (s.paymentMethod === "CASH") cashAmount += s.finalAmount || 0;
       else if (s.paymentMethod === "TRANSFER") transferAmount += s.finalAmount || 0;
       else if (s.paymentMethod === "QRIS") qrisAmount += s.finalAmount || 0;
+      else if (s.paymentMethod === "CREDIT") creditAmount += s.finalAmount || 0;
     });
 
-    const sanitizedSales = sales.map((sale) => ({
+    const sanitizedSales = sales.map((sale: any) => ({
       id: sale.id,
       trxType: "POS",
       invoiceNumber: sale.invoiceNumber,
@@ -209,10 +213,16 @@ export async function GET(request: NextRequest) {
       paymentMethod: sale.paymentMethod,
       cashGiven: sale.cashGiven,
       changeGiven: sale.changeGiven,
+      paymentStatus: sale.paymentStatus || "PAID",
+      dueDate: sale.dueDate,
+      paidAt: sale.paidAt,
+      paidMethod: sale.paidMethod,
+      customerName: sale.customerName || sale.customer?.name || null,
+      customerPhone: sale.customerPhone || sale.customer?.phone || null,
       notes: sale.notes,
       cashier: sale.cashier,
-      itemsCount: sale.items.reduce((acc, curr) => acc + curr.quantity, 0),
-      rawItems: sale.items.map((it) => ({
+      itemsCount: sale.items.reduce((acc: number, curr: any) => acc + curr.quantity, 0),
+      rawItems: sale.items.map((it: any) => ({
         id: it.id,
         itemType: it.itemType,
         itemName: it.itemName,
@@ -241,6 +251,7 @@ export async function GET(request: NextRequest) {
         cashAmount,
         transferAmount,
         qrisAmount,
+        creditAmount,
       },
     });
   } catch (error: any) {

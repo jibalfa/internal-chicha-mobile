@@ -26,6 +26,7 @@ import {
   Phone,
   Cable,
   Bluetooth,
+  FileText,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
 import {
@@ -59,6 +60,12 @@ interface TransactionRecord {
   paymentMethod: string;
   cashGiven?: number;
   changeGiven?: number;
+  paymentStatus?: string;
+  dueDate?: string | Date | null;
+  paidAt?: string | Date | null;
+  paidMethod?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
   notes?: string | null;
   status?: string;
   itemsCount?: number;
@@ -86,6 +93,7 @@ interface SummaryMeta {
   cashAmount: number;
   transferAmount: number;
   qrisAmount: number;
+  creditAmount?: number;
 }
 
 interface TransactionsClientProps {
@@ -298,10 +306,13 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
         createdAt: trx.createdAt,
         cashierName: trx.cashier?.name || user.name,
         paymentMethod: trx.paymentMethod || "CASH",
+        paymentStatus: trx.paymentStatus,
+        customerName: trx.customerName || undefined,
+        dueDate: trx.dueDate || undefined,
         totalAmount: trx.totalAmount,
         discount: trx.discount || 0,
         finalAmount: trx.finalAmount,
-        cashGiven: trx.cashGiven || trx.finalAmount,
+        cashGiven: trx.cashGiven !== undefined ? trx.cashGiven : (trx.paymentMethod === "CREDIT" ? 0 : trx.finalAmount),
         changeGiven: trx.changeGiven || 0,
         items: (trx.rawItems || []).map((it) => ({
           itemName: it.itemName,
@@ -585,6 +596,19 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                 >
                   Transfer
                 </button>
+                <button
+                  onClick={() => {
+                    setPaymentMethod("CREDIT");
+                    setPage(1);
+                  }}
+                  className={`flex-1 py-1.5 rounded-xl font-bold transition-all text-center ${
+                    paymentMethod === "CREDIT"
+                      ? "bg-amber-600 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Kredit/Nota
+                </button>
               </div>
             ) : (
               <div className="p-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-500 flex items-center gap-2">
@@ -775,9 +799,16 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                             <span>{trx.destinationNumber}</span>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-600 font-semibold bg-slate-100 px-2 py-0.5 rounded-md">
-                            Kasir POS
-                          </span>
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span className="text-[11px] text-slate-600 font-semibold bg-slate-100 px-2 py-0.5 rounded-md">
+                              Kasir POS
+                            </span>
+                            {trx.customerName && (
+                              <span className="text-[10px] text-slate-500 font-medium truncate max-w-[140px]" title={trx.customerName}>
+                                Pelanggan: <strong className="text-slate-800">{trx.customerName}</strong>
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
 
@@ -811,6 +842,22 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                             <QrCode className="w-3 h-3" />
                             <span>QRIS</span>
                           </span>
+                        ) : trx.paymentMethod === "CREDIT" ? (
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-extrabold shadow-sm">
+                              <FileText className="w-3 h-3 text-amber-600" />
+                              <span>KREDIT / NOTA</span>
+                            </span>
+                            {trx.paymentStatus === "PAID" ? (
+                              <span className="text-[9px] font-bold text-emerald-600 pl-1">
+                                ● Lunas
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-bold text-rose-600 pl-1">
+                                ● {trx.paymentStatus === "PARTIAL" ? "Sisa Sebagian" : "Belum Lunas"}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-extrabold">
                             <CreditCard className="w-3 h-3" />
@@ -1024,15 +1071,41 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-xs text-slate-900 pt-1 border-t border-slate-200">
-                  <span>TOTAL BAYAR:</span>
+                  <span>TOTAL TAGIHAN:</span>
                   <span>{formatRupiah(selectedTransaction.finalAmount)}</span>
                 </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>Metode: {selectedTransaction.paymentMethod}</span>
+                <div className="flex justify-between text-slate-600">
                   <span>
-                    Bayar: {formatRupiah(selectedTransaction.cashGiven || selectedTransaction.finalAmount)}
+                    Metode: {selectedTransaction.paymentMethod === "CREDIT" ? "KREDIT / NOTA" : selectedTransaction.paymentMethod}
+                  </span>
+                  <span>
+                    {selectedTransaction.paymentMethod === "CREDIT"
+                      ? `DP/Bayar: ${formatRupiah(selectedTransaction.cashGiven || 0)}`
+                      : `Bayar: ${formatRupiah(selectedTransaction.cashGiven || selectedTransaction.finalAmount)}`}
                   </span>
                 </div>
+                {selectedTransaction.paymentMethod === "CREDIT" && (
+                  <div className="space-y-0.5 pt-1 border-t border-slate-200">
+                    {selectedTransaction.customerName && (
+                      <div className="flex justify-between text-slate-700">
+                        <span>Pelanggan:</span>
+                        <span className="font-bold">{selectedTransaction.customerName}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-amber-800">
+                      <span>Status Pembayaran:</span>
+                      <span className={selectedTransaction.paymentStatus === "PAID" ? "text-emerald-700" : "text-rose-600"}>
+                        {selectedTransaction.paymentStatus === "PAID" ? "LUNAS" : "BELUM LUNAS"}
+                      </span>
+                    </div>
+                    {selectedTransaction.paymentStatus !== "PAID" && (
+                      <div className="flex justify-between font-bold text-rose-600">
+                        <span>Sisa Tagihan:</span>
+                        <span>{formatRupiah(Math.max(0, selectedTransaction.finalAmount - (selectedTransaction.cashGiven || 0)))}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {selectedTransaction.paymentMethod === "CASH" && (
                   <div className="flex justify-between font-bold text-emerald-700">
                     <span>Kembalian:</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Ticket,
   Plus,
@@ -16,10 +16,12 @@ import {
   Trash2,
   Calendar,
   FileSpreadsheet,
-  UserCheck,
+  Filter,
+  BarChart3,
+  RefreshCw,
+  Lock,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
-import VoucherDebtsTab, { VoucherDebt } from "./VoucherDebtsTab";
 
 interface Voucher {
   id: string;
@@ -64,7 +66,6 @@ interface VoucherClientProps {
   initialVouchers: Voucher[];
   initialMovements: VoucherMovement[];
   initialTodaySales?: TodaySaleItem[];
-  initialDebts?: VoucherDebt[];
   userRole: string;
 }
 
@@ -74,38 +75,62 @@ export default function VoucherClient({
   initialVouchers,
   initialMovements,
   initialTodaySales = [],
-  initialDebts = [],
   userRole,
 }: VoucherClientProps) {
   const [vouchers, setVouchers] = useState<Voucher[]>(initialVouchers);
   const [movements, setMovements] = useState<VoucherMovement[]>(initialMovements);
   const [todaySales, setTodaySales] = useState<TodaySaleItem[]>(initialTodaySales);
-  const [debts, setDebts] = useState<VoucherDebt[]>(initialDebts);
 
-  const [activeTab, setActiveTab] = useState<"DAILY_SALES" | "DEBTS" | "CATALOG" | "MOVEMENTS">("DAILY_SALES");
+  const [activeTab, setActiveTab] = useState<"DAILY_SALES" | "CATALOG" | "RECAP" | "MOVEMENTS">("DAILY_SALES");
   const [selectedOperator, setSelectedOperator] = useState("Semua");
   const [search, setSearch] = useState("");
   const [onlyLowStock, setOnlyLowStock] = useState(false);
 
-  // Unpaid Debts metrics
-  const unpaidDebts = debts.filter((d) => d.status === "UNPAID");
-  const unpaidDebtsCount = unpaidDebts.length;
-  const unpaidDebtsTotal = unpaidDebts.reduce((sum, d) => sum + d.totalAmount, 0);
+  // Riwayat Rekapan Voucher State
+  const [recapRange, setRecapRange] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("DAILY");
+  const [recapDate, setRecapDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [recapMonth, setRecapMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [recapData, setRecapData] = useState<any>(null);
+  const [recapLoading, setRecapLoading] = useState<boolean>(false);
+
+  const fetchRecapData = async (
+    range = recapRange,
+    date = recapDate,
+    month = recapMonth
+  ) => {
+    setRecapLoading(true);
+    try {
+      const res = await fetch(
+        `/api/vouchers/recap?range=${range}&date=${date}&month=${month}`
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setRecapData(data);
+      }
+    } catch (err) {
+      console.error("Recap fetch error:", err);
+    } finally {
+      setRecapLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "RECAP") {
+      fetchRecapData(recapRange, recapDate, recapMonth);
+    }
+  }, [activeTab, recapRange, recapDate, recapMonth]);
 
   // Refresh helpers
   const refreshVouchersData = async () => {
     try {
-      const [vouchersRes, movementsRes, debtsRes] = await Promise.all([
+      const [vouchersRes, movementsRes] = await Promise.all([
         fetch("/api/vouchers"),
         fetch("/api/vouchers/movements?limit=60"),
-        fetch("/api/vouchers/debts"),
       ]);
       const vData = await vouchersRes.json();
       const mData = await movementsRes.json();
-      const dData = await debtsRes.json();
       if (vData.vouchers) setVouchers(vData.vouchers);
       if (mData.movements) setMovements(mData.movements);
-      if (dData.debts) setDebts(dData.debts);
     } catch (e) {
       console.error(e);
     }
@@ -113,14 +138,9 @@ export default function VoucherClient({
 
   const refreshSalesData = async () => {
     try {
-      const [salesRes, debtsRes] = await Promise.all([
-        fetch("/api/vouchers/daily-sales"),
-        fetch("/api/vouchers/debts"),
-      ]);
+      const salesRes = await fetch("/api/vouchers/daily-sales");
       const sData = await salesRes.json();
-      const dData = await debtsRes.json();
       if (sData.saleItems) setTodaySales(sData.saleItems);
-      if (dData.debts) setDebts(dData.debts);
     } catch (e) {
       console.error(e);
     }
@@ -436,6 +456,7 @@ export default function VoucherClient({
         body: JSON.stringify({
           costPrice: Number(editingVoucher.costPrice),
           sellingPrice: Number(editingVoucher.sellingPrice),
+          stock: Number(editingVoucher.stock),
           minStock: Number(editingVoucher.minStock),
         }),
       });
@@ -444,7 +465,8 @@ export default function VoucherClient({
 
       setVouchers(vouchers.map((v) => (v.id === editingVoucher.id ? { ...v, ...data.voucher } : v)));
       setEditingVoucher(null);
-      setSuccessMessage("Data voucher berhasil diperbarui!");
+      setSuccessMessage("Data voucher & stok berhasil diperbarui!");
+      refreshVouchersData();
     } catch (err: any) {
       setErrorMessage(err.message);
     } finally {
@@ -569,23 +591,6 @@ export default function VoucherClient({
         </button>
 
         <button
-          onClick={() => setActiveTab("DEBTS")}
-          className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all ${
-            activeTab === "DEBTS"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <UserCheck className="w-4 h-4" />
-          <span>Bon & Piutang Pelanggan</span>
-          {unpaidDebtsCount > 0 && (
-            <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-500 text-white animate-pulse">
-              {unpaidDebtsCount}
-            </span>
-          )}
-        </button>
-
-        <button
           onClick={() => setActiveTab("CATALOG")}
           className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all ${
             activeTab === "CATALOG"
@@ -595,6 +600,18 @@ export default function VoucherClient({
         >
           <Ticket className="w-4 h-4" />
           <span>Katalog & Persediaan ({vouchers.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("RECAP")}
+          className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition-all ${
+            activeTab === "RECAP"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <TrendingUp className="w-4 h-4" />
+          <span>Riwayat Rekapan Voucher</span>
         </button>
 
         <button
@@ -613,29 +630,6 @@ export default function VoucherClient({
       {/* TAB 1: PENCATATAN PENJUALAN VOUCHER (INPUT SISA STOK) */}
       {activeTab === "DAILY_SALES" && (
         <div className="space-y-6">
-          {unpaidDebtsCount > 0 && (
-            <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 font-bold">
-                  !
-                </div>
-                <div>
-                  <p className="font-bold text-amber-950">
-                    Ada {unpaidDebtsCount} catatan bon voucher ({formatRupiah(unpaidDebtsTotal)}) yang belum lunas.
-                  </p>
-                  <p className="text-amber-700 text-[11px] mt-0.5">
-                    Stok fisik voucher sudah otomatis terpotong saat bon dicatat. Kas laci Anda tetap akurat dan tidak akan tekor/selisih.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveTab("DEBTS")}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl font-bold text-xs shrink-0 transition-all shadow-sm"
-              >
-                Lihat Bon Pelanggan →
-              </button>
-            </div>
-          )}
 
           {/* Card 1: Input Form Tabel Penjualan Voucher */}
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4">
@@ -832,15 +826,313 @@ export default function VoucherClient({
         </div>
       )}
 
-      {/* TAB 2: BON & PIUTANG PELANGGAN */}
-      {activeTab === "DEBTS" && (
-        <VoucherDebtsTab
-          vouchers={vouchers}
-          initialDebts={debts}
-          onRefreshVouchers={refreshVouchersData}
-          onRefreshSales={refreshSalesData}
-          userRole={userRole}
-        />
+      {/* TAB 2: RIWAYAT REKAPAN VOUCHER HP */}
+      {activeTab === "RECAP" && (
+        <div className="space-y-5 animate-in fade-in">
+          {/* Filter Bar: Per Tanggal, Per Minggu, Per Bulan */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+                <Filter className="w-3.5 h-3.5" />
+                Filter Rekapan:
+              </span>
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setRecapRange("DAILY")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    recapRange === "DAILY"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Per Tanggal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecapRange("WEEKLY")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    recapRange === "WEEKLY"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Per Minggu (7 Hari)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecapRange("MONTHLY")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    recapRange === "MONTHLY"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Per Bulan
+                </button>
+              </div>
+            </div>
+
+            {/* Date Pickers */}
+            <div className="flex items-center gap-2.5 w-full md:w-auto">
+              {recapRange === "DAILY" && (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700">
+                  <Calendar className="w-4 h-4 text-indigo-600" />
+                  <input
+                    type="date"
+                    value={recapDate}
+                    onChange={(e) => setRecapDate(e.target.value)}
+                    className="bg-transparent border-none text-xs font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {recapRange === "MONTHLY" && (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700">
+                  <Calendar className="w-4 h-4 text-indigo-600" />
+                  <input
+                    type="month"
+                    value={recapMonth}
+                    onChange={(e) => setRecapMonth(e.target.value)}
+                    className="bg-transparent border-none text-xs font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => fetchRecapData(recapRange, recapDate, recapMonth)}
+                disabled={recapLoading}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${recapLoading ? "animate-spin" : ""}`} />
+                <span>Muat Ulang</span>
+              </button>
+            </div>
+          </div>
+
+          {/* KPI CARDS: Jumlah Terjual, Total Uang, dan Laba */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Card 1: Jumlah yang Terjual */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Jumlah Terjual
+                </span>
+                <div className="w-9 h-9 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Ticket className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-slate-900">
+                {recapData?.summary?.totalSold || 0}{" "}
+                <span className="text-sm font-bold text-slate-400">pcs</span>
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Total fisik voucher berpindah ke pelanggan
+              </p>
+            </div>
+
+            {/* Card 2: Total Uang (Omset Penjualan) */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Total Uang (Omset)
+                </span>
+                <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-emerald-600">
+                {formatRupiah(recapData?.summary?.totalRevenue || 0)}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Akumulasi penerimaan kas & penjualan voucher
+              </p>
+            </div>
+
+            {/* Card 3: Laba (Keuntungan Bersih) - Sesuai RBAC */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Laba (Keuntungan)
+                </span>
+                <div className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+              </div>
+
+              {userRole === "OWNER" ? (
+                <>
+                  <p className="text-2xl font-black text-amber-700">
+                    {formatRupiah(recapData?.summary?.totalProfit || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Margin:{" "}
+                    <strong className="text-amber-800">
+                      {recapData?.summary?.profitMarginPct || 0}%
+                    </strong>{" "}
+                    dari total omset
+                  </p>
+                </>
+              ) : (
+                <div className="pt-1 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1.5 rounded-xl">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Terproteksi (Khusus Owner)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Kerahasiaan margin & harga modal dilindungi RBAC
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* TABEL REKAPAN AGREGASI (BUKAN LIST ITEM VOUCHER) */}
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">
+                  Rekapitulasi Penjualan Harian & Periode
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Ringkasan agregasi kuantitas terjual, omset, dan laba berdasarkan periode
+                </p>
+              </div>
+              <span className="text-xs font-bold px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200/60 rounded-xl">
+                {recapRange === "DAILY"
+                  ? "Rekap Harian"
+                  : recapRange === "WEEKLY"
+                  ? "Rekap Mingguan"
+                  : "Rekap Bulanan"}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto px-5 pb-5">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <th className="py-3 px-3">Periode / Tanggal</th>
+                    <th className="py-3 px-3 text-center">Jumlah Terjual (Pcs)</th>
+                    <th className="py-3 px-3 text-right">Total Uang (Omset)</th>
+                    <th className="py-3 px-3 text-right">
+                      {userRole === "OWNER" ? "Laba (Keuntungan)" : "Laba (RBAC)"}
+                    </th>
+                    <th className="py-3 px-3 text-left">Rincian Per Operator</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {recapLoading ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-1 text-indigo-600" />
+                        <span>Memuat data rekapan voucher...</span>
+                      </td>
+                    </tr>
+                  ) : !recapData?.dailyBreakdown || recapData.dailyBreakdown.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        <Ticket className="w-9 h-9 mx-auto mb-2 text-slate-300 stroke-[1.5]" />
+                        <p className="font-bold text-slate-600 text-sm">Belum ada transaksi penjualan voucher pada periode ini</p>
+                        <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
+                          Transaksi voucher fisik akan otomatis terakumulasi di sini saat kasir melakukan penjualan via POS Kasir atau mencatat via tab Penjualan Harian.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    recapData.dailyBreakdown.map((row: any) => (
+                      <tr key={row.dateStr} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3.5 px-3 font-extrabold text-slate-800">
+                          {row.label}
+                        </td>
+                        <td className="py-3.5 px-3 text-center font-black text-indigo-600 text-sm">
+                          {row.soldCount} pcs
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-extrabold text-emerald-600">
+                          {formatRupiah(row.revenue)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-extrabold">
+                          {userRole === "OWNER" ? (
+                            <span className="text-amber-700">{formatRupiah(row.profit)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic font-mono text-[11px]">
+                              Terkunci
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3">
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(row.operators || {}).map(([op, qty]: any) => (
+                              <span
+                                key={op}
+                                className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[10px]"
+                              >
+                                {op}: {qty}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* TABEL REKAPAN PER OPERATOR */}
+          {recapData?.operatorBreakdown && recapData.operatorBreakdown.length > 0 && (
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4">
+              <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+                <h3 className="font-extrabold text-slate-900 text-base">
+                  Rekapitulasi Penjualan per Operator Provider
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Distribusi penjualan voucher fisik berdasarkan provider telekomunikasi
+                </p>
+              </div>
+
+              <div className="overflow-x-auto px-5 pb-5">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      <th className="py-3 px-3">Provider Operator</th>
+                      <th className="py-3 px-3 text-center">Jumlah Terjual (Pcs)</th>
+                      <th className="py-3 px-3 text-right">Total Uang (Omset)</th>
+                      <th className="py-3 px-3 text-right">
+                        {userRole === "OWNER" ? "Total Laba" : "Laba"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {recapData.operatorBreakdown.map((opRow: any) => (
+                      <tr key={opRow.operator} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3.5 px-3 font-bold text-slate-800 flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-lg text-xs font-bold border ${getOperatorBadgeClass(opRow.operator)}`}>
+                            {opRow.operator}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 text-center font-black text-slate-900">
+                          {opRow.soldCount} pcs
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-extrabold text-emerald-600">
+                          {formatRupiah(opRow.revenue)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-extrabold">
+                          {userRole === "OWNER" ? (
+                            <span className="text-amber-700">{formatRupiah(opRow.profit)}</span>
+                          ) : (
+                            <span className="text-slate-400 italic text-[11px]">Terkunci</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* TAB 3: KATALOG & PERSEDIAAN */}
@@ -1443,6 +1735,28 @@ export default function VoucherClient({
                 </div>
                 <p className="text-xs text-slate-500">
                   Stok saat ini: <span className="font-bold text-slate-800">{editingVoucher.stock} pcs</span>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Stok Fisik Tersedia (Pcs) *
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  value={editingVoucher.stock}
+                  onChange={(e) =>
+                    setEditingVoucher({
+                      ...editingVoucher,
+                      stock: Math.max(0, parseInt(e.target.value) || 0),
+                    })
+                  }
+                  className="w-full bg-slate-50 border border-indigo-300 rounded-xl px-3 py-2 text-xs font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Perubahan stok akan otomatis tersimpan dan tercatat pada riwayat mutasi stok.
                 </p>
               </div>
 
