@@ -102,7 +102,6 @@ export function getOperatorRank(operator: string): number {
 const EXCEL_ROWS = [
   // 1. Telkomsel
   { op: "telkomsel", row: 1, regex: [/(?<!\d)5[\s\/]+2\b/i, /(?<!\d)5\s*gb.*2\s*(?:hr|hari)/i] }, // 1. V.Tsel 5/2 (e.g. TSEL 5GB/2HR)
-  { op: "telkomsel", row: 1.5, regex: [/(?<!\d)6[\s\/]+2\b/i, /(?<!\d)6\s*gb.*2\s*(?:hr|hari)/i] }, // 6GB/2HR
   { op: "telkomsel", row: 2, regex: [/(?<!\d)[45][\s\/]+3\b/i, /(?<!\d)[45]\s*gb.*3\s*(?:hr|hari)/i] }, // 2. V.Tsel 4/3 & 5GB/3HR
   { op: "telkomsel", row: 3, regex: [/(?<!\d)4[\s\/]+5\b/i, /(?<!\d)4\s*gb.*5\s*(?:hr|hari)/i] }, // 3. V.Tsel 4/5
   { op: "telkomsel", row: 4, regex: [/(?<!\d)[67][\s\/]+5\b/i, /(?<!\d)[67]\s*gb.*5\s*(?:hr|hari)/i] }, // 4. V.Tsel 6/5 & 7GB/5HR
