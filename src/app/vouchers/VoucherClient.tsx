@@ -129,6 +129,76 @@ export default function VoucherClient({
   const [recapLoading, setRecapLoading] = useState<boolean>(false);
   const [recapSourceFilter, setRecapSourceFilter] = useState<"ALL" | "POS" | "DAILY_RECORD">("ALL");
   const [recapSearch, setRecapSearch] = useState<string>("");
+  const [exportLoading, setExportLoading] = useState<boolean>(false);
+
+  const handleExportExcel = async () => {
+    setExportLoading(true);
+    try {
+      let startDate = "";
+      let endDate = "";
+
+      if (activeTab === "RECAP") {
+        if (recapRange === "DAILY") {
+          startDate = `${recapDate}T00:00:00.000`;
+          endDate = `${recapDate}T23:59:59.999`;
+        } else if (recapRange === "MONTHLY") {
+          const parts = recapMonth.split("-").map(Number);
+          if (parts.length === 2) {
+            const year = parts[0];
+            const month = parts[1];
+            const startMonth = new Date(year, month - 1, 1, 0, 0, 0, 0);
+            const endMonth = new Date(year, month, 0, 23, 59, 59, 999);
+            startDate = startMonth.toISOString();
+            endDate = endMonth.toISOString();
+          }
+        } else if (recapRange === "WEEKLY") {
+          const curr = new Date(recapDate);
+          const first = curr.getDate() - curr.getDay() + 1; // Monday
+          const monday = new Date(curr.setDate(first));
+          monday.setHours(0, 0, 0, 0);
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          sunday.setHours(23, 59, 59, 999);
+          startDate = monday.toISOString();
+          endDate = sunday.toISOString();
+        }
+      } else if (activeTab === "DAILY_SALES") {
+        startDate = `${selectedRecordDate}T00:00:00.000`;
+        endDate = `${selectedRecordDate}T23:59:59.999`;
+      }
+
+      const query = startDate && endDate ? `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}` : "";
+      const res = await fetch(`/api/reports/export${query}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Gagal mengunduh file Excel laporan");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      const disposition = res.headers.get("Content-Disposition");
+      let filename = `Laporan_ChiCha_Mobile_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      if (disposition && disposition.indexOf("filename=") !== -1) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, "");
+        }
+      }
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      console.error("Export error:", err);
+      alert(err.message || "Gagal mengekspor laporan ke Excel");
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   const fetchRecapData = async (
     range = recapRange,
@@ -584,13 +654,29 @@ export default function VoucherClient({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Voucher Baru</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleExportExcel}
+            disabled={exportLoading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all active:scale-[0.98] disabled:opacity-60"
+            title="Download Laporan Lengkap Multi-Sheet (Excel .xlsx)"
+          >
+            {exportLoading ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4" />
+            )}
+            <span>{exportLoading ? "Mengekspor..." : "Export Excel (.xlsx)"}</span>
+          </button>
+
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Voucher Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Alert Messages */}

@@ -39,6 +39,7 @@ export default function ReportsClient() {
   const [customEndDate, setCustomEndDate] = useState("");
   const [reportData, setReportData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exportLoading, setExportLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "PNL" | "POS_RETAIL" | "VOUCHER" | "DIGITAL" | "EXPENSES" | "RECEIVABLES"
   >("PNL");
@@ -217,6 +218,74 @@ export default function ReportsClient() {
     window.print();
   };
 
+  const handleExportExcel = async () => {
+    setExportLoading(true);
+    try {
+      let startDate = "";
+      let endDate = "";
+      const now = new Date();
+
+      if (periodPreset === "TODAY") {
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        startDate = todayStart.toISOString();
+        endDate = todayEnd.toISOString();
+      } else if (periodPreset === "7DAYS") {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(now.getDate() - 7);
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+        startDate = sevenDaysAgo.toISOString();
+        endDate = now.toISOString();
+      } else if (periodPreset === "THIS_MONTH") {
+        const startMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        startDate = startMonth.toISOString();
+        endDate = endMonth.toISOString();
+      } else if (periodPreset === "LAST_MONTH") {
+        const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+        const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        startDate = startLastMonth.toISOString();
+        endDate = endLastMonth.toISOString();
+      } else if (periodPreset === "CUSTOM" && customStartDate && customEndDate) {
+        const startCustom = new Date(`${customStartDate}T00:00:00.000`);
+        const endCustom = new Date(`${customEndDate}T23:59:59.999`);
+        startDate = startCustom.toISOString();
+        endDate = endCustom.toISOString();
+      }
+
+      const query = startDate && endDate ? `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}` : "";
+      const res = await fetch(`/api/reports/export${query}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Gagal mengunduh file Excel laporan");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      const disposition = res.headers.get("Content-Disposition");
+      let filename = `Laporan_ChiCha_Mobile_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      if (disposition && disposition.indexOf("filename=") !== -1) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, "");
+        }
+      }
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      console.error("Export error:", err);
+      alert(err.message || "Gagal mengekspor laporan ke Excel");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const formatPeriodLabel = () => {
     if (!reportData?.period) return "";
     const s = new Date(reportData.period.startDate).toLocaleDateString("id-ID", {
@@ -310,6 +379,20 @@ export default function ReportsClient() {
               Kustom
             </button>
           </div>
+
+          <button
+            onClick={handleExportExcel}
+            disabled={exportLoading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all active:scale-95 disabled:opacity-60"
+            title="Download Laporan Lengkap Multi-Sheet (Excel .xlsx)"
+          >
+            {exportLoading ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4" />
+            )}
+            <span>{exportLoading ? "Mengekspor..." : "Export Excel (.xlsx)"}</span>
+          </button>
 
           <button
             onClick={handlePrint}
