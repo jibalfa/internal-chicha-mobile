@@ -114,9 +114,10 @@ export default function DigitalClient({
       if (!map[cat]) {
         map[cat] = { count: 0, totalNominal: 0, totalAdmin: 0 };
       }
+      const nominalVal = trx.costPrice > 0 ? trx.costPrice : Math.max(0, (trx.sellingPrice || 0) - (trx.profit || 0));
       map[cat].count += 1;
-      map[cat].totalNominal += trx.costPrice; // The base nominal
-      map[cat].totalAdmin += trx.profit; // The admin fee profit
+      map[cat].totalNominal += nominalVal; // The base nominal
+      map[cat].totalAdmin += (trx.profit || 0); // The admin fee profit
     });
 
     return map;
@@ -129,9 +130,10 @@ export default function DigitalClient({
     let totalAdmin = 0;
 
     dateFilteredTransactions.forEach((trx) => {
+      const nominalVal = trx.costPrice > 0 ? trx.costPrice : Math.max(0, (trx.sellingPrice || 0) - (trx.profit || 0));
       count += 1;
-      totalNominal += trx.costPrice;
-      totalAdmin += trx.profit;
+      totalNominal += nominalVal;
+      totalAdmin += (trx.profit || 0);
     });
 
     return { count, totalNominal, totalAdmin };
@@ -742,7 +744,7 @@ export default function DigitalClient({
                               {getTypeBadge(t.digitalProduct?.category || "TOP-UP")}
                             </td>
                             <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">
-                              {formatRupiah(t.costPrice)}
+                              {formatRupiah(t.costPrice > 0 ? t.costPrice : Math.max(0, (t.sellingPrice || 0) - (t.profit || 0)))}
                             </td>
                             <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600">
                               +{formatRupiah(t.profit)}

@@ -72,16 +72,9 @@ export async function GET(request: NextRequest) {
       take: limit,
     });
 
-    const sanitizedTransactions = isOwner
-      ? transactions
-      : transactions.map((t) => ({
-          ...t,
-          costPrice: 0,
-          profit: 0,
-          digitalProduct: t.digitalProduct
-            ? { ...t.digitalProduct, costPrice: 0 }
-            : t.digitalProduct,
-        }));
+    // Pada transaksi digital, nominal disimpan di costPrice dan biaya admin di profit
+    // Kasir maupun Owner dapat melihat nominal dan biaya admin transaksi digital
+    const sanitizedTransactions = transactions;
 
     return NextResponse.json({ transactions: sanitizedTransactions });
   } catch (error) {

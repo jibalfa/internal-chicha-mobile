@@ -33,17 +33,9 @@ export default async function DigitalPage() {
   const dbCategories = rawProducts.map((p) => p.category.trim().toUpperCase());
   const initialTypes = Array.from(new Set([...DEFAULT_TYPES, ...dbCategories]));
 
-  const isOwner = session.role === "OWNER";
-  const sanitizedTransactions = isOwner
-    ? transactions
-    : transactions.map((t) => ({
-        ...t,
-        costPrice: 0,
-        profit: t.profit, // In digital counter, profit is the admin fee paid by customer
-        digitalProduct: t.digitalProduct
-          ? { ...t.digitalProduct, costPrice: 0 }
-          : t.digitalProduct,
-      }));
+  // Pada transaksi digital (PPOB), costPrice adalah nilai nominal transaksi yang diproses kasir
+  // Baik akun OWNER maupun CASHIER/Admin Kasir dapat melihat total nominal transaksi
+  const sanitizedTransactions = transactions;
 
   return (
     <AppShell user={session}>
