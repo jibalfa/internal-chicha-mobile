@@ -22,6 +22,7 @@ import {
   Lock,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
+import { sortVouchers } from "@/lib/voucher-sort";
 
 interface Voucher {
   id: string;
@@ -77,7 +78,7 @@ export default function VoucherClient({
   initialTodaySales = [],
   userRole,
 }: VoucherClientProps) {
-  const [vouchers, setVouchers] = useState<Voucher[]>(initialVouchers);
+  const [vouchers, setVouchers] = useState<Voucher[]>(() => sortVouchers(initialVouchers));
   const [movements, setMovements] = useState<VoucherMovement[]>(initialMovements);
   const [todaySales, setTodaySales] = useState<TodaySaleItem[]>(initialTodaySales);
 
@@ -131,7 +132,7 @@ export default function VoucherClient({
       ]);
       const vData = await vouchersRes.json();
       const mData = await movementsRes.json();
-      if (vData.vouchers) setVouchers(vData.vouchers);
+      if (vData.vouchers) setVouchers(sortVouchers(vData.vouchers));
       if (mData.movements) setMovements(mData.movements);
     } catch (e) {
       console.error(e);
@@ -273,7 +274,7 @@ export default function VoucherClient({
       const vouchersData = await vouchersRes.json();
       const salesData = await salesRes.json();
 
-      if (vouchersData.vouchers) setVouchers(vouchersData.vouchers);
+      if (vouchersData.vouchers) setVouchers(sortVouchers(vouchersData.vouchers));
       if (salesData.saleItems) setTodaySales(salesData.saleItems);
     } catch (err: any) {
       setErrorMessage(err.message);
@@ -320,7 +321,7 @@ export default function VoucherClient({
       const vouchersData = await vouchersRes.json();
       const salesData = await salesRes.json();
 
-      if (vouchersData.vouchers) setVouchers(vouchersData.vouchers);
+      if (vouchersData.vouchers) setVouchers(sortVouchers(vouchersData.vouchers));
       if (salesData.saleItems) setTodaySales(salesData.saleItems);
     } catch (err: any) {
       setErrorMessage(err.message);
@@ -362,7 +363,7 @@ export default function VoucherClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal membuat voucher");
 
-      setVouchers([...vouchers, data.voucher]);
+      setVouchers((prev) => sortVouchers([...prev, data.voucher]));
       setIsAddModalOpen(false);
       setNewVoucherForm({
         operator: "Telkomsel",
@@ -399,7 +400,9 @@ export default function VoucherClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menambah stok voucher");
 
-      setVouchers(vouchers.map((v) => (v.id === data.voucher.id ? data.voucher : v)));
+      setVouchers((prev) =>
+        sortVouchers(prev.map((v) => (v.id === data.voucher.id ? data.voucher : v)))
+      );
       setMovements([data.movement, ...movements]);
       setIsStockInModalOpen(false);
     } catch (err: any) {
@@ -432,7 +435,7 @@ export default function VoucherClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menghapus voucher");
 
-      setVouchers(vouchers.filter((v) => v.id !== voucherToDelete.id));
+      setVouchers((prev) => prev.filter((v) => v.id !== voucherToDelete.id));
       setVoucherToDelete(null);
       if (editingVoucher?.id === voucherToDelete.id) {
         setEditingVoucher(null);
@@ -465,7 +468,11 @@ export default function VoucherClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal memperbarui voucher");
 
-      setVouchers(vouchers.map((v) => (v.id === editingVoucher.id ? { ...v, ...data.voucher } : v)));
+      setVouchers((prev) =>
+        sortVouchers(
+          prev.map((v) => (v.id === editingVoucher.id ? { ...v, ...data.voucher } : v))
+        )
+      );
       setEditingVoucher(null);
       setSuccessMessage("Data voucher & stok berhasil diperbarui!");
       refreshVouchersData();

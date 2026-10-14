@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { sortVouchers } from "@/lib/voucher-sort";
 import { z } from "zod";
 
 const createVoucherSchema = z.object({
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
           costPrice: 0,
         }));
 
-    return NextResponse.json({ vouchers: sanitizedVouchers });
+    return NextResponse.json({ vouchers: sortVouchers(sanitizedVouchers) });
   } catch (error) {
     console.error("GET Vouchers Error:", error);
     return NextResponse.json({ error: "Gagal mengambil data voucher" }, { status: 500 });

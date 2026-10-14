@@ -32,6 +32,7 @@ import {
   Check,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
+import { sortVouchers } from "@/lib/voucher-sort";
 import {
   printerManager,
   buildSaleReceiptBuffer,
@@ -111,7 +112,7 @@ export default function PosClient({
   initialStoreSetting,
 }: PosClientProps) {
   const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [vouchers, setVouchers] = useState<Voucher[]>(initialVouchers);
+  const [vouchers, setVouchers] = useState<Voucher[]>(() => sortVouchers(initialVouchers));
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
 
   // Store Setting State

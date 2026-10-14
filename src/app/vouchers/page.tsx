@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import AppShell from "@/components/layout/AppShell";
 import VoucherClient from "./VoucherClient";
 import { prisma } from "@/lib/prisma";
+import { sortVouchers } from "@/lib/voucher-sort";
 
 export default async function VouchersPage() {
   const session = await getSession();
@@ -59,6 +60,8 @@ export default async function VouchersPage() {
     ? vouchers
     : vouchers.map((v) => ({ ...v, costPrice: 0 }));
 
+  const sortedVouchers = sortVouchers(sanitizedVouchers);
+
   const sanitizedMovements = isOwner
     ? movements
     : movements.map((m) => ({
@@ -78,7 +81,7 @@ export default async function VouchersPage() {
   return (
     <AppShell user={session}>
       <VoucherClient
-        initialVouchers={JSON.parse(JSON.stringify(sanitizedVouchers))}
+        initialVouchers={JSON.parse(JSON.stringify(sortedVouchers))}
         initialMovements={JSON.parse(JSON.stringify(sanitizedMovements))}
         initialTodaySales={JSON.parse(JSON.stringify(sanitizedTodaySales))}
         userRole={session.role}

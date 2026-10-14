@@ -5,6 +5,7 @@ import AppShell from "@/components/layout/AppShell";
 import PosClient from "./PosClient";
 import { prisma } from "@/lib/prisma";
 import { getStoreSettings } from "@/lib/storeSettings";
+import { sortVouchers } from "@/lib/voucher-sort";
 
 export default async function PosPage() {
   const session = await getSession();
@@ -34,7 +35,7 @@ export default async function PosPage() {
     <AppShell user={session}>
       <PosClient
         initialProducts={JSON.parse(JSON.stringify(products))}
-        initialVouchers={JSON.parse(JSON.stringify(vouchers))}
+        initialVouchers={JSON.parse(JSON.stringify(sortVouchers(vouchers)))}
         initialCustomers={JSON.parse(JSON.stringify(customers))}
         cashierName={session.name}
         userRole={session.role}
