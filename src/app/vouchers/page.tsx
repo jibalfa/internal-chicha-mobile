@@ -40,7 +40,7 @@ export default async function VouchersPage() {
     }),
     prisma.saleItem.findMany({
       where: {
-        itemType: "VOUCHER",
+        OR: [{ itemType: "VOUCHER" }, { voucherId: { not: null } }],
         sale: {
           createdAt: {
             gte: startOfDay,
@@ -50,6 +50,19 @@ export default async function VouchersPage() {
       },
       include: {
         voucher: true,
+        sale: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            createdAt: true,
+            paymentMethod: true,
+            paymentStatus: true,
+            notes: true,
+            cashier: {
+              select: { id: true, name: true },
+            },
+          },
+        },
       },
       orderBy: { id: "desc" },
     }),

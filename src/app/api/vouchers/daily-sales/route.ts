@@ -11,6 +11,7 @@ const batchSalesSchema = z.object({
     })
   ),
   notes: z.string().optional(),
+  date: z.string().optional(), // YYYY-MM-DD
 });
 
 const correctionSchema = z.object({
@@ -18,7 +19,7 @@ const correctionSchema = z.object({
   newQuantity: z.number().int().min(0),
 });
 
-// GET today's recorded voucher sales
+// GET recorded voucher sales for a specific date (defaults to today)
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) {
@@ -29,17 +30,30 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get("date");
 
-    const targetDate = dateParam ? new Date(dateParam) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
+    const now = new Date();
+    let year = now.getFullYear();
+    let month = now.getMonth();
+    let day = now.getDate();
 
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    if (dateParam) {
+      const parts = dateParam.split("-");
+      if (parts.length === 3) {
+        year = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10) - 1;
+        day = parseInt(parts[2], 10);
+      }
+    }
 
-    // Fetch sale items of type VOUCHER created today
+    const startOfDay = new Date(year, month, day, 0, 0, 0, 0);
+    const endOfDay = new Date(year, month, day, 23, 59, 59, 999);
+
+    // Fetch sale items of type VOUCHER created on this date
     const saleItems = await prisma.saleItem.findMany({
       where: {
-        itemType: "VOUCHER",
+        OR: [
+          { itemType: "VOUCHER" },
+          { voucherId: { not: null } },
+        ],
         sale: {
           createdAt: {
             gte: startOfDay,
@@ -48,7 +62,22 @@ export async function GET(request: NextRequest) {
         },
       },
       include: {
-        sale: true,
+        sale: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            createdAt: true,
+            paymentMethod: true,
+            paymentStatus: true,
+            notes: true,
+            cashier: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
         voucher: true,
       },
       orderBy: { id: "desc" },
@@ -58,13 +87,13 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("GET Daily Voucher Sales Error:", error);
     return NextResponse.json(
-      { error: "Gagal mengambil rekap penjualan voucher hari ini" },
+      { error: "Gagal mengambil rekap penjualan voucher" },
       { status: 500 }
     );
   }
 }
 
-// POST batch daily sales recording (Sisa Stok based)
+// POST batch daily sales recording (Sisa Stok based, supports specific date)
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
@@ -78,10 +107,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 });
     }
 
-    const { items, notes } = parsed.data;
+    const { items, notes, date: dateParam } = parsed.data;
+
+    // Determine target record date
+    const now = new Date();
+    let recordDate = new Date();
+    if (dateParam) {
+      const parts = dateParam.split("-");
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        recordDate = new Date(y, m, d, now.getHours(), now.getMinutes(), now.getSeconds());
+      }
+    }
 
     const result = await prisma.$transaction(async (tx) => {
-      const recordedItems: any[] = [];
       let totalAmount = 0;
 
       // 1. Fetch current active vouchers
@@ -124,13 +165,15 @@ export async function POST(request: NextRequest) {
         });
 
         // Prepare movement log
+        const dateLabelStr = dateParam || recordDate.toISOString().slice(0, 10);
         movementsToCreate.push({
           voucherId: voucher.id,
           type: "SOLD",
           quantity: soldQty,
           previousStock,
           newStock: remainingStock,
-          notes: notes?.trim() || "Pencatatan penjualan voucher harian (by sisa stok)",
+          notes: notes?.trim() || `Pencatatan penjualan voucher harian (${dateLabelStr})`,
+          createdAt: recordDate,
         });
 
         // Prepare SaleItem
@@ -150,18 +193,24 @@ export async function POST(request: NextRequest) {
         throw new Error("Tidak ada kuantitas terjual yang dicatat.");
       }
 
-      // Generate Invoice Number
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const countToday = await tx.sale.count({
+      // Generate Invoice Number with date prefix
+      const dateStr = recordDate.toISOString().slice(0, 10).replace(/-/g, "");
+      const startOfRecordDay = new Date(recordDate);
+      startOfRecordDay.setHours(0, 0, 0, 0);
+      const endOfRecordDay = new Date(recordDate);
+      endOfRecordDay.setHours(23, 59, 59, 999);
+
+      const countOnDate = await tx.sale.count({
         where: {
           createdAt: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
+            gte: startOfRecordDay,
+            lte: endOfRecordDay,
           },
         },
       });
-      const invoiceNumber = `VCH-${dateStr}-${String(countToday + 1).padStart(4, "0")}`;
+      const invoiceNumber = `VCH-${dateStr}-${String(countOnDate + 1).padStart(4, "0")}`;
 
-      // Create Sale Record
+      // Create Sale Record with specified createdAt
       const sale = await tx.sale.create({
         data: {
           invoiceNumber,
@@ -171,6 +220,7 @@ export async function POST(request: NextRequest) {
           paymentMethod: "CASH",
           cashierId: session.userId,
           notes: notes || "Pencatatan Rekap Penjualan Voucher",
+          createdAt: recordDate,
           items: {
             create: saleItemsToCreate,
           },
@@ -209,7 +259,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT / PATCH - Correct today's sale quantity for a voucher
+// PUT / PATCH - Correct recorded sale quantity for a voucher
 export async function PUT(request: NextRequest) {
   const session = await getSession();
   if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
@@ -246,7 +296,7 @@ export async function PUT(request: NextRequest) {
       // Check stock availability if increasing sold quantity
       if (diff > 0 && voucher.stock < diff) {
         throw new Error(
-          `Stok voucher ${voucher.operator} ${voucher.nominal} tidak mencukupi (sisa: ${voucher.stock} pcs)`
+          `Stok voucher ${voucher.operator} ${voucher.nominal} tidak mencukupi (sisa persediaan fisik: ${voucher.stock} pcs)`
         );
       }
 
@@ -267,7 +317,7 @@ export async function PUT(request: NextRequest) {
           quantity: Math.abs(diff),
           previousStock,
           newStock,
-          notes: `Koreksi rekap penjualan dari ${existingItem.quantity} pcs ke ${newQuantity} pcs`,
+          notes: `Koreksi rekap penjualan dari ${existingItem.quantity} pcs ke ${newQuantity} pcs (Faktur: #${existingItem.sale?.invoiceNumber || ""})`,
         },
       });
 
@@ -288,7 +338,10 @@ export async function PUT(request: NextRequest) {
       const allItems = await tx.saleItem.findMany({
         where: { saleId: existingItem.saleId },
       });
-      const newTotalAmount = allItems.reduce((sum, i) => sum + i.subtotal, 0);
+      const newTotalAmount = allItems.reduce(
+        (sum, i) => (i.id === item.id ? newSubtotal : sum + i.subtotal),
+        0
+      );
 
       await tx.sale.update({
         where: { id: existingItem.saleId },
@@ -310,3 +363,100 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
+
+// DELETE - Cancel/Delete recorded voucher sale item and return stock
+export async function DELETE(request: NextRequest) {
+  const session = await getSession();
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
+    return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const saleItemId = searchParams.get("saleItemId");
+
+    if (!saleItemId) {
+      return NextResponse.json({ error: "saleItemId wajib disertakan" }, { status: 400 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const existingItem = await tx.saleItem.findUnique({
+        where: { id: saleItemId },
+        include: { sale: true, voucher: true },
+      });
+
+      if (!existingItem) {
+        throw new Error("Pencatatan penjualan voucher tidak ditemukan.");
+      }
+
+      // Return stock back to voucher
+      if (existingItem.voucherId && existingItem.quantity > 0) {
+        const voucher = await tx.voucher.findUnique({
+          where: { id: existingItem.voucherId },
+        });
+
+        if (voucher) {
+          const previousStock = voucher.stock;
+          const newStock = previousStock + existingItem.quantity;
+
+          await tx.voucher.update({
+            where: { id: voucher.id },
+            data: { stock: newStock },
+          });
+
+          await tx.voucherMovement.create({
+            data: {
+              voucherId: voucher.id,
+              type: "ADJUSTMENT",
+              quantity: existingItem.quantity,
+              previousStock,
+              newStock,
+              notes: `Pembatalan rekapan penjualan voucher #${existingItem.sale?.invoiceNumber || ""} (${existingItem.quantity} pcs dikembalikan ke stok)`,
+            },
+          });
+        }
+      }
+
+      const saleId = existingItem.saleId;
+
+      // Delete the sale item
+      await tx.saleItem.delete({
+        where: { id: saleItemId },
+      });
+
+      // Check remaining items in the parent sale
+      const remainingItems = await tx.saleItem.findMany({
+        where: { saleId },
+      });
+
+      if (remainingItems.length === 0) {
+        // If sale has no more items, delete parent sale
+        await tx.sale.delete({
+          where: { id: saleId },
+        });
+      } else {
+        // Recalculate parent sale totals
+        const newTotal = remainingItems.reduce((sum, item) => sum + item.subtotal, 0);
+        await tx.sale.update({
+          where: { id: saleId },
+          data: {
+            totalAmount: newTotal,
+            finalAmount: newTotal,
+          },
+        });
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Pencatatan penjualan voucher berhasil dibatalkan dan stok telah dikembalikan ke katalog.",
+    });
+  } catch (error: any) {
+    console.error("Delete Voucher Sale Item Error:", error);
+    return NextResponse.json(
+      { error: error.message || "Gagal membatalkan pencatatan penjualan voucher" },
+      { status: 400 }
+    );
+  }
+}
+

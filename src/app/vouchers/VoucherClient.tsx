@@ -61,6 +61,15 @@ interface TodaySaleItem {
   subtotal: number;
   voucherId: string | null;
   voucher?: Voucher | null;
+  sale?: {
+    id: string;
+    invoiceNumber: string;
+    createdAt: string;
+    paymentMethod: string;
+    paymentStatus?: string;
+    notes?: string | null;
+    cashier?: { id: string; name: string } | null;
+  } | null;
 }
 
 interface VoucherClientProps {
@@ -71,6 +80,28 @@ interface VoucherClientProps {
 }
 
 const POPULAR_OPERATORS = ["Semua", "Telkomsel", "Smartfren", "Tri", "XL", "Indosat", "Axis"];
+
+const formatIndoDate = (dateStr: string) => {
+  if (!dateStr) return "";
+  const parts = dateStr.split("-");
+  if (parts.length === 3) {
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    return d.toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  return dateStr;
+};
+
+const getTodayString = () => new Date().toISOString().slice(0, 10);
+const getYesterdayString = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
 
 export default function VoucherClient({
   initialVouchers,
@@ -86,6 +117,9 @@ export default function VoucherClient({
   const [selectedOperator, setSelectedOperator] = useState("Semua");
   const [search, setSearch] = useState("");
   const [onlyLowStock, setOnlyLowStock] = useState(false);
+
+  // Tanggal pencatatan & rekapan penjualan voucher (default: hari ini)
+  const [selectedRecordDate, setSelectedRecordDate] = useState<string>(getTodayString);
 
   // Riwayat Rekapan Voucher State
   const [recapRange, setRecapRange] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("DAILY");
@@ -139,15 +173,19 @@ export default function VoucherClient({
     }
   };
 
-  const refreshSalesData = async () => {
+  const refreshSalesData = async (date = selectedRecordDate) => {
     try {
-      const salesRes = await fetch("/api/vouchers/daily-sales");
+      const salesRes = await fetch(`/api/vouchers/daily-sales?date=${date}`);
       const sData = await salesRes.json();
       if (sData.saleItems) setTodaySales(sData.saleItems);
     } catch (e) {
       console.error(e);
     }
   };
+
+  useEffect(() => {
+    refreshSalesData(selectedRecordDate);
+  }, [selectedRecordDate]);
 
   // Remaining Stock inputs for daily sales recording (voucherId -> string input)
   // User enters REMAINING stock (SISA), so sold quantity is automatically calculated
@@ -165,6 +203,10 @@ export default function VoucherClient({
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [selectedCorrectionItem, setSelectedCorrectionItem] = useState<TodaySaleItem | null>(null);
   const [correctedQty, setCorrectedQty] = useState<number>(0);
+
+  // Cancellation / Deletion Modal for recorded sales
+  const [saleItemToDelete, setSaleItemToDelete] = useState<TodaySaleItem | null>(null);
+  const [deleteSaleItemLoading, setDeleteSaleItemLoading] = useState(false);
 
   // Forms
   const [newVoucherForm, setNewVoucherForm] = useState({
@@ -255,27 +297,26 @@ export default function VoucherClient({
       const res = await fetch("/api/vouchers/daily-sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: itemsToSubmit }),
+        body: JSON.stringify({
+          items: itemsToSubmit,
+          date: selectedRecordDate,
+        }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menyimpan laporan penjualan");
 
-      setSuccessMessage("Laporan penjualan voucher berhasil disimpan!");
+      setSuccessMessage(`Laporan penjualan voucher untuk tanggal ${formatIndoDate(selectedRecordDate)} berhasil disimpan!`);
 
       // Reset Sisa inputs
       setRemainingStockInputs({});
 
       // Refresh data
-      const [vouchersRes, salesRes] = await Promise.all([
-        fetch("/api/vouchers"),
-        fetch("/api/vouchers/daily-sales"),
+      await Promise.all([
+        refreshVouchersData(),
+        refreshSalesData(selectedRecordDate),
+        activeTab === "RECAP" ? fetchRecapData(recapRange, recapDate, recapMonth) : Promise.resolve(),
       ]);
-      const vouchersData = await vouchersRes.json();
-      const salesData = await salesRes.json();
-
-      if (vouchersData.vouchers) setVouchers(sortVouchers(vouchersData.vouchers));
-      if (salesData.saleItems) setTodaySales(salesData.saleItems);
     } catch (err: any) {
       setErrorMessage(err.message);
     } finally {
@@ -314,19 +355,46 @@ export default function VoucherClient({
       setIsCorrectionModalOpen(false);
 
       // Refresh data
-      const [vouchersRes, salesRes] = await Promise.all([
-        fetch("/api/vouchers"),
-        fetch("/api/vouchers/daily-sales"),
+      await Promise.all([
+        refreshVouchersData(),
+        refreshSalesData(selectedRecordDate),
+        activeTab === "RECAP" ? fetchRecapData(recapRange, recapDate, recapMonth) : Promise.resolve(),
       ]);
-      const vouchersData = await vouchersRes.json();
-      const salesData = await salesRes.json();
-
-      if (vouchersData.vouchers) setVouchers(sortVouchers(vouchersData.vouchers));
-      if (salesData.saleItems) setTodaySales(salesData.saleItems);
     } catch (err: any) {
       setErrorMessage(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteSaleItem = async () => {
+    if (!saleItemToDelete) return;
+
+    setDeleteSaleItemLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const res = await fetch(`/api/vouchers/daily-sales?saleItemId=${saleItemToDelete.id}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal membatalkan pencatatan penjualan");
+
+      setSuccessMessage(data.message || "Pencatatan penjualan voucher berhasil dibatalkan!");
+      setSaleItemToDelete(null);
+
+      // Refresh data
+      await Promise.all([
+        refreshVouchersData(),
+        refreshSalesData(selectedRecordDate),
+        activeTab === "RECAP" ? fetchRecapData(recapRange, recapDate, recapMonth) : Promise.resolve(),
+      ]);
+    } catch (err: any) {
+      setErrorMessage(err.message);
+    } finally {
+      setDeleteSaleItemLoading(false);
     }
   };
 
@@ -655,16 +723,107 @@ export default function VoucherClient({
       {activeTab === "DAILY_SALES" && (
         <div className="space-y-6">
 
+          {/* Bar Kontrol Pemilihan Tanggal Rekapan */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+                <Calendar className="w-4 h-4 text-indigo-600" />
+                Pilih Tanggal Rekapan:
+              </span>
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setSelectedRecordDate(getTodayString())}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    selectedRecordDate === getTodayString()
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Hari Ini
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRecordDate(getYesterdayString())}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    selectedRecordDate === getYesterdayString()
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Kemarin
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 w-full md:w-auto">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700">
+                <Calendar className="w-4 h-4 text-indigo-600" />
+                <input
+                  type="date"
+                  value={selectedRecordDate}
+                  onChange={(e) => setSelectedRecordDate(e.target.value)}
+                  className="bg-transparent border-none text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              <span className="text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl hidden sm:inline-block">
+                {formatIndoDate(selectedRecordDate)}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  refreshSalesData(selectedRecordDate);
+                  refreshVouchersData();
+                }}
+                title="Segarkan data tanggal ini"
+                className="p-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl transition-all"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Banner Peringatan jika merekap tanggal masa lalu */}
+          {selectedRecordDate !== getTodayString() && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="font-bold">
+                    Mode Rekap Mundur / Cross-Cek Tanggal: {formatIndoDate(selectedRecordDate)}
+                  </p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    Data penjualan yang Anda simpan pada form di bawah akan tercatat resmi pada tanggal <strong>{selectedRecordDate}</strong>. Anda juga bisa mengoreksi rekapan yang salah di tabel bawah.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedRecordDate(getTodayString())}
+                className="shrink-0 px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 font-bold text-amber-900 rounded-xl text-xs transition-all shadow-sm"
+              >
+                Kembali ke Hari Ini
+              </button>
+            </div>
+          )}
+
           {/* Card 1: Input Form Tabel Penjualan Voucher */}
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-4">
             <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-slate-50 to-indigo-50/30">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <h2 className="text-lg font-bold text-slate-900 flex flex-wrap items-center gap-2">
                   <Calendar className="w-5 h-5 text-indigo-600" />
-                  <span>Form Pencatatan Penjualan Voucher Harian</span>
+                  <span>Form Pencatatan Penjualan Voucher</span>
+                  <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">
+                    {formatIndoDate(selectedRecordDate)}
+                  </span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Input <strong>SISA STOK</strong> voucher fisik saat ini. Sistem akan otomatis menghitung jumlah terjual & subtotal.
+                  Input <strong>SISA STOK</strong> voucher fisik saat ini. Sistem akan otomatis menghitung jumlah terjual & subtotal untuk tanggal {formatIndoDate(selectedRecordDate)}.
                 </p>
               </div>
             </div>
@@ -749,7 +908,7 @@ export default function VoucherClient({
             <div className="p-5 bg-slate-50/80 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Estimasi Total Penjualan
+                  Estimasi Total Penjualan ({formatIndoDate(selectedRecordDate)})
                 </p>
                 <p className="text-2xl font-extrabold text-emerald-600 mt-0.5">
                   {formatRupiah(totalEstimatedSales)}
@@ -762,85 +921,160 @@ export default function VoucherClient({
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-2xl font-bold text-sm shadow-lg shadow-indigo-600/25 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
               >
                 <Save className="w-4 h-4" />
-                <span>{loading ? "Menyimpan Laporan..." : "SIMPAN LAPORAN PENJUALAN"}</span>
+                <span>
+                  {loading
+                    ? "Menyimpan Laporan..."
+                    : `SIMPAN REKAP TANGGAL ${selectedRecordDate === getTodayString() ? "HARI INI" : selectedRecordDate}`}
+                </span>
               </button>
             </div>
           </div>
 
-          {/* Card 2: ARSIP & LAPORAN - Rekap Penjualan Voucher Hari Ini */}
+          {/* Card 2: ARSIP & LAPORAN - Rekap Penjualan Voucher Tanggal Terpilih */}
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-6 space-y-4">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
-                Arsip & Laporan
-              </span>
-              <h3 className="text-xl font-extrabold text-slate-900 tracking-tight mt-2">
-                Rekap Penjualan Voucher Hari Ini
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Rekapitulasi total voucher fisik yang telah berhasil dijual hari ini. Anda dapat mengedit jika ada kesalahan pencatatan.
-              </p>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                  Arsip & Laporan
+                </span>
+                <h3 className="text-xl font-extrabold text-slate-900 tracking-tight mt-2 flex items-center gap-2">
+                  <span>
+                    Rekap Penjualan Voucher: {selectedRecordDate === getTodayString() ? "Hari Ini" : formatIndoDate(selectedRecordDate)}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Rekapitulasi total voucher fisik yang telah tercatat terjual pada tanggal ini ({todaySales.length} transaksi). Anda dapat mengoreksi jumlah terjual atau membatalkan rekapan jika terdapat kesalahan input.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => refreshSalesData(selectedRecordDate)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Segarkan</span>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-2xl border border-slate-100">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="bg-slate-50/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200/80">
+                    <th className="py-3.5 px-4">Waktu</th>
                     <th className="py-3.5 px-4">Nama Voucher</th>
-                    <th className="py-3.5 px-4 text-center">Harga Satuan</th>
+                    <th className="py-3.5 px-4 text-center">Sumber</th>
+                    <th className="py-3.5 px-4 text-right">Harga Satuan</th>
                     <th className="py-3.5 px-4 text-center">Jumlah Terjual</th>
-                    <th className="py-3.5 px-4 text-center">Total Uang</th>
+                    <th className="py-3.5 px-4 text-right">Total Uang</th>
+                    <th className="py-3.5 px-4 text-center">Kasir</th>
                     <th className="py-3.5 px-4 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {todaySales.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center text-slate-400">
-                        Belum ada pencatatan penjualan voucher hari ini.
+                      <td colSpan={8} className="px-6 py-10 text-center text-slate-400">
+                        <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="font-bold text-slate-600 text-sm">
+                          Belum ada pencatatan penjualan voucher pada tanggal {formatIndoDate(selectedRecordDate)}.
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Input sisa stok pada form di atas lalu klik tombol simpan untuk mencatat penjualan voucher tanggal ini.
+                        </p>
                       </td>
                     </tr>
                   ) : (
-                    todaySales.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-4 px-4 font-bold text-slate-900">
-                          {item.itemName}
-                        </td>
-                        <td className="py-4 px-4 text-center font-semibold text-slate-600">
-                          {formatRupiah(item.unitPrice)}
-                        </td>
-                        <td className="py-4 px-4 text-center font-extrabold text-slate-900 text-sm">
-                          {item.quantity} pcs
-                        </td>
-                        <td className="py-4 px-4 text-center font-extrabold text-indigo-600 text-sm">
-                          {formatRupiah(item.subtotal)}
-                        </td>
-                        <td className="py-4 px-4 text-right">
-                          <button
-                            onClick={() => openCorrectionModal(item)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/70 rounded-xl text-xs font-bold transition-all active:scale-95"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                            <span>Koreksi</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    todaySales.map((item) => {
+                      const isPOS = item.sale?.invoiceNumber && !item.sale.invoiceNumber.startsWith("VCH-");
+                      const itemDate = item.sale?.createdAt ? new Date(item.sale.createdAt) : null;
+                      const timeStr = itemDate
+                        ? itemDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) + " WIB"
+                        : "-";
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <span className="font-bold text-slate-900 block font-mono text-xs">
+                              {timeStr}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              #{item.sale?.invoiceNumber || "-"}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 font-bold text-slate-900">
+                            <div>{item.itemName}</div>
+                            {item.voucher && (
+                              <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-md text-[10px] font-bold border ${getOperatorBadgeClass(item.voucher.operator)}`}>
+                                {item.voucher.operator}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-4 px-4 text-center whitespace-nowrap">
+                            {isPOS ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200/80 text-[10px] font-extrabold">
+                                🛒 Kasir POS
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-extrabold">
+                                📝 Sisa Stok
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-4 px-4 text-right font-semibold text-slate-600 whitespace-nowrap">
+                            {formatRupiah(item.unitPrice)}
+                          </td>
+                          <td className="py-4 px-4 text-center font-extrabold text-slate-900 text-sm whitespace-nowrap">
+                            <span className="inline-block px-2.5 py-1 rounded-lg bg-slate-100 text-slate-900 font-black">
+                              {item.quantity} pcs
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-right font-extrabold text-emerald-600 text-sm whitespace-nowrap">
+                            {formatRupiah(item.subtotal)}
+                          </td>
+                          <td className="py-4 px-4 text-center text-slate-600 whitespace-nowrap text-xs">
+                            {item.sale?.cashier?.name || "Kasir"}
+                          </td>
+                          <td className="py-4 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => openCorrectionModal(item)}
+                                title="Koreksi kuantitas terjual"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/70 rounded-xl text-xs font-bold transition-all active:scale-95"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Koreksi</span>
+                              </button>
+                              <button
+                                onClick={() => setSaleItemToDelete(item)}
+                                title="Batalkan / Hapus rekapan ini (kembalikan stok)"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/70 rounded-xl text-xs font-bold transition-all active:scale-95"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Batal</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
 
                   {/* Summary Row */}
                   {todaySales.length > 0 && (
                     <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-200 text-slate-900">
-                      <td className="py-4 px-4 text-sm font-extrabold text-slate-900">
-                        Total Penjualan Hari Ini
+                      <td colSpan={4} className="py-4 px-4 text-sm font-extrabold text-slate-900">
+                        Total Penjualan Tanggal {selectedRecordDate === getTodayString() ? "Hari Ini" : selectedRecordDate}
                       </td>
-                      <td className="py-4 px-4"></td>
                       <td className="py-4 px-4 text-center font-extrabold text-slate-900 text-sm">
                         {todayTotalQty} pcs
                       </td>
-                      <td className="py-4 px-4 text-center font-extrabold text-emerald-600 text-base">
+                      <td className="py-4 px-4 text-right font-extrabold text-emerald-600 text-base">
                         {formatRupiah(todayTotalAmount)}
                       </td>
-                      <td className="py-4 px-4"></td>
+                      <td colSpan={2}></td>
                     </tr>
                   )}
                 </tbody>
@@ -1248,19 +1482,20 @@ export default function VoucherClient({
                     </th>
                     <th className="py-3 px-3 text-center">Metode & Status</th>
                     <th className="py-3 px-3">Pelanggan / Kasir</th>
+                    <th className="py-3 px-3 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {recapLoading ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-slate-400">
+                      <td colSpan={11} className="py-8 text-center text-slate-400">
                         <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-1 text-indigo-600" />
                         <span>Memuat data transaksi...</span>
                       </td>
                     </tr>
                   ) : filteredRecapSales.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-10 text-center text-slate-400">
+                      <td colSpan={11} className="py-10 text-center text-slate-400">
                         <p className="font-semibold text-slate-600">Tidak ada transaksi voucher ditemukan</p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
                           {recapSearch
@@ -1375,6 +1610,54 @@ export default function VoucherClient({
                               </span>
                             )}
                           </td>
+
+                          {/* Aksi Koreksi & Batal */}
+                          <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openCorrectionModal({
+                                    id: item.id,
+                                    itemName: item.itemName,
+                                    quantity: item.quantity,
+                                    unitPrice: item.unitPrice,
+                                    subtotal: item.subtotal,
+                                    voucherId: null,
+                                  })
+                                }
+                                title="Koreksi kuantitas transaksi ini"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/70 rounded-lg text-xs font-bold transition-all active:scale-95"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span className="hidden xl:inline">Koreksi</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSaleItemToDelete({
+                                    id: item.id,
+                                    itemName: item.itemName,
+                                    quantity: item.quantity,
+                                    unitPrice: item.unitPrice,
+                                    subtotal: item.subtotal,
+                                    voucherId: null,
+                                    sale: {
+                                      id: item.saleId,
+                                      invoiceNumber: item.invoiceNumber,
+                                      createdAt: item.createdAt,
+                                      paymentMethod: item.paymentMethod,
+                                    },
+                                  })
+                                }
+                                title="Batalkan transaksi ini & kembalikan stok"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/70 rounded-lg text-xs font-bold transition-all active:scale-95"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="hidden xl:inline">Batal</span>
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })
@@ -1402,7 +1685,7 @@ export default function VoucherClient({
                           <span className="text-slate-400 italic text-[11px]">Terkunci</span>
                         )}
                       </td>
-                      <td colSpan={2}></td>
+                      <td colSpan={3}></td>
                     </tr>
                   )}
                 </tbody>
@@ -2171,6 +2454,73 @@ export default function VoucherClient({
                 className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
               >
                 {deleteLoading ? "Menghapus..." : "Ya, Hapus Voucher"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL KONFIRMASI BATAL/HAPUS REKAPAN PENJUALAN */}
+      {saleItemToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Batalkan Rekapan Penjualan</h3>
+                <p className="text-xs text-slate-500">Koreksi & pembatalan transaksi voucher</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Voucher:</span>
+                <span className="font-bold text-slate-900">{saleItemToDelete.itemName}</span>
+              </div>
+              {saleItemToDelete.sale?.invoiceNumber && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">No. Faktur:</span>
+                  <span className="font-mono font-bold text-slate-700">#{saleItemToDelete.sale.invoiceNumber}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Kuantitas Dicatat Terjual:</span>
+                <span className="font-extrabold text-rose-600">{saleItemToDelete.quantity} pcs</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Total Nilai Penjualan:</span>
+                <span className="font-extrabold text-emerald-600">{formatRupiah(saleItemToDelete.subtotal)}</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 space-y-1">
+              <p className="font-bold flex items-center gap-1.5 text-amber-900">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>Pengembalian Stok Otomatis</span>
+              </p>
+              <p>
+                Jika dibatalkan, sejumlah <strong>{saleItemToDelete.quantity} pcs</strong> stok fisik akan otomatis dikembalikan ke katalog voucher, dan rekapan omset/laba tanggal tersebut akan dikurangi kembali.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleteSaleItemLoading}
+                onClick={() => setSaleItemToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Tutup
+              </button>
+              <button
+                type="button"
+                disabled={deleteSaleItemLoading}
+                onClick={handleDeleteSaleItem}
+                className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl shadow-md shadow-rose-600/20 transition-all disabled:opacity-50"
+              >
+                {deleteSaleItemLoading ? "Membatalkan..." : "Ya, Batalkan & Kembalikan Stok"}
               </button>
             </div>
           </div>
