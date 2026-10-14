@@ -59,103 +59,98 @@ export function getOperatorRank(operator: string): number {
   return 99;
 }
 
-// Ordered mappings matching the store's physical ledger / Excel sheet:
-// Column A:
-// Row 3: P.Simpati 4gb
-// Row 4: V.Tsel 4/1
-// Row 5: V.Tsel 5/2
-// Row 6: V.Tsel 4/3
-// Row 7: V.Tsel 4/5
-// Row 8: V.Tsel 6/5
-// Row 9: V.Tsl 7/7
-// Row 10: V.SF 10/7
-// Row 11: V.SF Unli 7
-// Row 12: V.SF 4/14
-// Row 13: V.SF Unli 6/30
-// Row 14: V.Tri 2/1
-// Row 15: V.Tri 10/3
-// Row 16: V.Tri 3/7
-// Row 17: V.Tri 6/5
-// Row 18: V.Tri 9/7
-// Row 19: V.Tri 7/30
-// Row 20: V.Tri 6 Unli
-// Row 21: V.Tri 6 Aon
-// Row 22: V.XL 3,5/7
-// Row 23: V.XL 4,5/30
-// Row 24: V.XL 12/30
-// Row 25: V.Im3 2,5
-// Row 26: V.Im3 9/7
-// Row 27: V.Im3 5/5
-// Row 28: V.Im3 6/30
-// Row 29: V.Axis 3/1
-// Row 30: V.Axis 3/3
-// Row 31: V.Axis 5/3
-// Row 32: V.Axis 4/5
-// Row 33: V.Axis 5/5
-// Row 34: V.Axis 10/3
-// Row 35: V.Axis 16/5
-// Row 36: V.Axis 25/5
-// Row 37: V.Axis 17/7
-// Row 38: V.Axis 5/15
-// Row 39: V.Axis 25/15
-// Row 40: V.Axis 6,5/30
-// Row 41: V.Axis 10/30
-// Row 42: V.Axis 16/30
+// Ordered mappings matching exactly 38 items from the user's physical store list:
+// 1. V.Tsel 5/2
+// 2. V.Tsel 4/3
+// 3. V.Tsel 4/5
+// 4. V.Tsel 6/5
+// 5. V.Tsl 7/7
+// 6. V.SF 10/7
+// 7. V.SF Unli 7
+// 8. V.SF 4/14
+// 9. V SF Unli 6/30
+// 10. V.Tri 2/1
+// 11. V.Tri 10/3
+// 12. V.Tri 3/7
+// 13. V.Tri 6/5
+// 14. V.Tri 9/7
+// 15. V.Tri 7/30
+// 16. V.Tri 6 Unli
+// 17. V.Tri 6 Aon
+// 18. V.Xl 3,5/7
+// 19. V.Xl 4,5/30
+// 20. V.Xl 12/30
+// 21. V.Im3 2,5
+// 22. V.Im3 9/7
+// 23. V.Im3 5/5
+// 24. V.Im3 6/30
+// 25. V.Axis 3/1
+// 26. V.Axis 3/3
+// 27. V.Axis 5/3
+// 28. V.Axis 4/5
+// 29. V/Axis 5/5
+// 30. V.Axis 10/3
+// 31. V.Axis 16/5
+// 32. V.Axis 25/5
+// 33. V.Axis 17/7
+// 34. V.Axis 5/15
+// 35. V.Axis 25/15
+// 36. V.Axis 6,5/30
+// 37. V.Axis 10/30
+// 38. V.Axis 16/30
 
 const EXCEL_ROWS = [
   // 1. Telkomsel
-  { op: "telkomsel", row: 3, regex: [/simpati/i] },
-  { op: "telkomsel", row: 4, regex: [/(?<!\d)4[\s\/]+1\b/i, /(?<!\d)4\s*gb.*1\s*(?:hr|hari)/i] },
-  { op: "telkomsel", row: 5, regex: [/(?<!\d)5[\s\/]+2\b/i, /(?<!\d)5\s*gb.*2\s*(?:hr|hari)/i] }, // V.Tsel 5/2 (e.g. TSEL 5GB/2HR)
-  { op: "telkomsel", row: 5.5, regex: [/(?<!\d)6[\s\/]+2\b/i, /(?<!\d)6\s*gb.*2\s*(?:hr|hari)/i] }, // 6GB/2HR
-  { op: "telkomsel", row: 6, regex: [/(?<!\d)[45][\s\/]+3\b/i, /(?<!\d)[45]\s*gb.*3\s*(?:hr|hari)/i] }, // V.Tsel 4/3 & 5GB/3HR
-  { op: "telkomsel", row: 7, regex: [/(?<!\d)4[\s\/]+5\b/i, /(?<!\d)4\s*gb.*5\s*(?:hr|hari)/i] }, // V.Tsel 4/5
-  { op: "telkomsel", row: 8, regex: [/(?<!\d)[67][\s\/]+5\b/i, /(?<!\d)[67]\s*gb.*5\s*(?:hr|hari)/i] }, // V.Tsel 6/5 & 7GB/5HR
-  { op: "telkomsel", row: 9, regex: [/(?<!\d)7[\s\/]+7\b/i, /(?<!\d)7\s*gb.*7\s*(?:hr|hari)/i] }, // V.Tsl 7/7 (7GB/7HR)
-  { op: "telkomsel", row: 9.5, regex: [/(?<!\d)11[\s\/]+7\b/i, /(?<!\d)11\s*gb.*7\s*(?:hr|hari)/i] }, // 11GB/7HR
+  { op: "telkomsel", row: 1, regex: [/(?<!\d)5[\s\/]+2\b/i, /(?<!\d)5\s*gb.*2\s*(?:hr|hari)/i] }, // 1. V.Tsel 5/2 (e.g. TSEL 5GB/2HR)
+  { op: "telkomsel", row: 1.5, regex: [/(?<!\d)6[\s\/]+2\b/i, /(?<!\d)6\s*gb.*2\s*(?:hr|hari)/i] }, // 6GB/2HR
+  { op: "telkomsel", row: 2, regex: [/(?<!\d)[45][\s\/]+3\b/i, /(?<!\d)[45]\s*gb.*3\s*(?:hr|hari)/i] }, // 2. V.Tsel 4/3 & 5GB/3HR
+  { op: "telkomsel", row: 3, regex: [/(?<!\d)4[\s\/]+5\b/i, /(?<!\d)4\s*gb.*5\s*(?:hr|hari)/i] }, // 3. V.Tsel 4/5
+  { op: "telkomsel", row: 4, regex: [/(?<!\d)[67][\s\/]+5\b/i, /(?<!\d)[67]\s*gb.*5\s*(?:hr|hari)/i] }, // 4. V.Tsel 6/5 & 7GB/5HR
+  { op: "telkomsel", row: 5, regex: [/(?<!\d)7[\s\/]+7\b/i, /(?<!\d)7\s*gb.*7\s*(?:hr|hari)/i] }, // 5. V.Tsl 7/7 (7GB/7HR)
+  { op: "telkomsel", row: 5.5, regex: [/(?<!\d)11[\s\/]+7\b/i, /(?<!\d)11\s*gb.*7\s*(?:hr|hari)/i] }, // 11GB/7HR
 
   // 2. Smartfren
-  { op: "smartfren", row: 10, regex: [/(?<!\d)(?:10|9)[\s\/]+7\b/i, /(?<!\d)(?:10|9)\s*gb.*7\s*(?:hr|hari)/i] }, // V.SF 10/7 & 9GB/7HR
-  { op: "smartfren", row: 11, regex: [/unli.*7/i, /7.*unli/i] }, // V.SF Unli 7
-  { op: "smartfren", row: 12, regex: [/(?<!\d)(?:4|7[,.]5)[\s\/]+14\b/i, /(?<!\d)(?:4|7[,.]5)\s*gb.*14\s*(?:hr|hari)/i] }, // V.SF 4/14 & 7,5GB/14HR
-  { op: "smartfren", row: 13, regex: [/unli.*30/i, /unli.*6[\s\/]*30/i] }, // V.SF Unli 6/30
+  { op: "smartfren", row: 6, regex: [/(?<!\d)(?:10|9)[\s\/]+7\b/i, /(?<!\d)(?:10|9)\s*gb.*7\s*(?:hr|hari)/i] }, // 6. V.SF 10/7 & 9GB/7HR
+  { op: "smartfren", row: 7, regex: [/unli.*7/i, /7.*unli/i] }, // 7. V.SF Unli 7
+  { op: "smartfren", row: 8, regex: [/(?<!\d)(?:4|7[,.]5)[\s\/]+14\b/i, /(?<!\d)(?:4|7[,.]5)\s*gb.*14\s*(?:hr|hari)/i] }, // 8. V.SF 4/14 & 7,5GB/14HR
+  { op: "smartfren", row: 9, regex: [/unli.*30/i, /unli.*6[\s\/]*30/i] }, // 9. V SF Unli 6/30
 
   // 3. Tri
-  { op: "tri", row: 14, regex: [/(?<!\d)(?:2|6)[\s\/]+1\b/i, /(?<!\d)(?:2|6)\s*gb.*1\s*(?:hr|hari)/i] }, // V.Tri 2/1 & 6GB/1HR
-  { op: "tri", row: 15, regex: [/(?<!\d)(?:10|11)[\s\/]+3\b/i, /(?<!\d)(?:10|11)\s*gb.*3\s*(?:hr|hari)/i] }, // V.Tri 10/3 & 11GB/3HR
-  { op: "tri", row: 16, regex: [/(?<!\d)3[\s\/]+7\b/i, /(?<!\d)3\s*gb.*7\s*(?:hr|hari)/i] }, // V.Tri 3/7
-  { op: "tri", row: 17, regex: [/(?<!\d)6[\s\/]+5\b/i, /(?<!\d)6\s*gb.*5\s*(?:hr|hari)/i] }, // V.Tri 6/5
-  { op: "tri", row: 18, regex: [/(?<!\d)(?:9|15)[\s\/]+7\b/i, /(?<!\d)(?:9|15)\s*gb.*7\s*(?:hr|hari)/i] }, // V.Tri 9/7 & 15GB/7HR
-  { op: "tri", row: 19, regex: [/(?<!\d)7[\s\/]+30\b/i, /(?<!\d)7\s*gb.*30\s*(?:hr|hari)/i] }, // V.Tri 7/30
-  { op: "tri", row: 20, regex: [/unli/i] }, // V.Tri 6 Unli
-  { op: "tri", row: 21, regex: [/aon/i] }, // V.Tri 6 Aon
+  { op: "tri", row: 10, regex: [/(?<!\d)(?:2|6)[\s\/]+1\b/i, /(?<!\d)(?:2|6)\s*gb.*1\s*(?:hr|hari)/i] }, // 10. V.Tri 2/1 & 6GB/1HR
+  { op: "tri", row: 11, regex: [/(?<!\d)(?:10|11)[\s\/]+3\b/i, /(?<!\d)(?:10|11)\s*gb.*3\s*(?:hr|hari)/i] }, // 11. V.Tri 10/3 & 11GB/3HR
+  { op: "tri", row: 12, regex: [/(?<!\d)3[\s\/]+7\b/i, /(?<!\d)3\s*gb.*7\s*(?:hr|hari)/i] }, // 12. V.Tri 3/7
+  { op: "tri", row: 13, regex: [/(?<!\d)6[\s\/]+5\b/i, /(?<!\d)6\s*gb.*5\s*(?:hr|hari)/i] }, // 13. V.Tri 6/5
+  { op: "tri", row: 14, regex: [/(?<!\d)(?:9|15)[\s\/]+7\b/i, /(?<!\d)(?:9|15)\s*gb.*7\s*(?:hr|hari)/i] }, // 14. V.Tri 9/7 & 15GB/7HR
+  { op: "tri", row: 15, regex: [/(?<!\d)7[\s\/]+30\b/i, /(?<!\d)7\s*gb.*30\s*(?:hr|hari)/i] }, // 15. V.Tri 7/30
+  { op: "tri", row: 16, regex: [/unli/i] }, // 16. V.Tri 6 Unli
+  { op: "tri", row: 17, regex: [/aon/i] }, // 17. V.Tri 6 Aon
 
   // 4. XL
-  { op: "xl", row: 22, regex: [/(?<!\d)3[,.]5[\s\/]+7\b/i, /(?<!\d)3[,.]5\s*gb.*7\s*(?:hr|hari)/i] }, // V.XL 3,5/7
-  { op: "xl", row: 23, regex: [/(?<!\d)4[,.]5[\s\/]+30\b/i, /(?<!\d)4[,.]5\s*gb.*30\s*(?:hr|hari)/i] }, // V.XL 4,5/30
-  { op: "xl", row: 24, regex: [/(?<!\d)(?:12|15)[\s\/]+(?:28|30)\b/i, /(?<!\d)(?:12|15)\s*gb.*(?:28|30)\s*(?:hr|hari)/i] }, // V.XL 12/30 & 15GB/28HR
+  { op: "xl", row: 18, regex: [/(?<!\d)3[,.]5[\s\/]+7\b/i, /(?<!\d)3[,.]5\s*gb.*7\s*(?:hr|hari)/i] }, // 18. V.Xl 3,5/7
+  { op: "xl", row: 19, regex: [/(?<!\d)4[,.]5[\s\/]+30\b/i, /(?<!\d)4[,.]5\s*gb.*30\s*(?:hr|hari)/i] }, // 19. V.Xl 4,5/30
+  { op: "xl", row: 20, regex: [/(?<!\d)(?:12|15)[\s\/]+(?:28|30)\b/i, /(?<!\d)(?:12|15)\s*gb.*(?:28|30)\s*(?:hr|hari)/i] }, // 20. V.Xl 12/30 & 15GB/28HR
 
   // 5. Indosat
-  { op: "indosat", row: 25, regex: [/(?<!\d)(?:2[,.]5|4)[\s\/]+5\b/i, /(?<!\d)(?:2[,.]5|4)\s*gb.*5\s*(?:hr|hari)/i, /(?<!\d)2[,.]5\b/i] }, // V.Im3 2,5 & 4GB/5HR
-  { op: "indosat", row: 26, regex: [/(?<!\d)(?:5|9)[\s\/]+5\b/i, /(?<!\d)(?:5|9)\s*gb.*5\s*(?:hr|hari)/i] }, // V.Im3 5/5 & 9GB/5HR
-  { op: "indosat", row: 27, regex: [/(?<!\d)(?:9|13)[\s\/]+7\b/i, /(?<!\d)(?:9|13)\s*gb.*7\s*(?:hr|hari)/i] }, // V.Im3 9/7 & 13GB/7HR
-  { op: "indosat", row: 28, regex: [/(?<!\d)6[\s\/]+30\b/i, /(?<!\d)6\s*gb.*30\s*(?:hr|hari)/i] }, // V.Im3 6/30
+  { op: "indosat", row: 21, regex: [/(?<!\d)(?:2[,.]5|4)[\s\/]+5\b/i, /(?<!\d)(?:2[,.]5|4)\s*gb.*5\s*(?:hr|hari)/i, /(?<!\d)2[,.]5\b/i] }, // 21. V.Im3 2,5 & 4GB/5HR
+  { op: "indosat", row: 22, regex: [/(?<!\d)(?:9|13)[\s\/]+7\b/i, /(?<!\d)(?:9|13)\s*gb.*7\s*(?:hr|hari)/i] }, // 22. V.Im3 9/7 & 13GB/7HR
+  { op: "indosat", row: 23, regex: [/(?<!\d)(?:5|9)[\s\/]+5\b/i, /(?<!\d)(?:5|9)\s*gb.*5\s*(?:hr|hari)/i] }, // 23. V.Im3 5/5 & 9GB/5HR
+  { op: "indosat", row: 24, regex: [/(?<!\d)6[\s\/]+30\b/i, /(?<!\d)6\s*gb.*30\s*(?:hr|hari)/i] }, // 24. V.Im3 6/30
 
   // 6. Axis
-  { op: "axis", row: 29, regex: [/(?<!\d)(?:3|8)[\s\/]+1\b/i, /(?<!\d)(?:3|8)\s*gb.*1\s*(?:hr|hari)/i] }, // V.Axis 3/1 & 8GB/1HR
-  { op: "axis", row: 30, regex: [/(?<!\d)3[\s\/]+3\b/i, /(?<!\d)3\s*gb.*3\s*(?:hr|hari)/i] }, // V.Axis 3/3
-  { op: "axis", row: 31, regex: [/(?<!\d)5[\s\/]+3\b/i, /(?<!\d)5\s*gb.*3\s*(?:hr|hari)/i] }, // V.Axis 5/3
-  { op: "axis", row: 32, regex: [/(?<!\d)4[\s\/]+5\b/i, /(?<!\d)4\s*gb.*5\s*(?:hr|hari)/i] }, // V.Axis 4/5
-  { op: "axis", row: 33, regex: [/(?<!\d)5[\s\/]+5\b/i, /(?<!\d)5\s*gb.*5\s*(?:hr|hari)/i] }, // V.Axis 5/5
-  { op: "axis", row: 34, regex: [/(?<!\d)(?:10|13)[\s\/]+3\b/i, /(?<!\d)(?:10|13)\s*gb.*3\s*(?:hr|hari)/i] }, // V.Axis 10/3 & 13GB/3HR (Row 34)
-  { op: "axis", row: 35, regex: [/(?<!\d)16[\s\/]+5\b/i, /(?<!\d)16\s*gb.*5\s*(?:hr|hari)/i] }, // V.Axis 16/5
-  { op: "axis", row: 36, regex: [/(?<!\d)(?:25|24)[\s\/]+5\b/i, /(?<!\d)(?:25|24)\s*gb.*5\s*(?:hr|hari)/i] }, // V.Axis 25/5 & 24GB/5HR
-  { op: "axis", row: 37, regex: [/(?<!\d)17[\s\/]+7\b/i, /(?<!\d)17\s*gb.*7\s*(?:hr|hari)/i] }, // V.Axis 17/7
-  { op: "axis", row: 38, regex: [/(?<!\d)5[\s\/]+(?:14|15)\b/i, /(?<!\d)5\s*gb.*(?:14|15)\s*(?:hr|hari)/i] }, // V.Axis 5/15 & 5GB/14HR
-  { op: "axis", row: 39, regex: [/(?<!\d)25[\s\/]+15\b/i, /(?<!\d)25\s*gb.*15\s*(?:hr|hari)/i] }, // V.Axis 25/15
-  { op: "axis", row: 40, regex: [/(?<!\d)(?:6[,.]5|7)[\s\/]+30\b/i, /(?<!\d)(?:6[,.]5|7)\s*gb.*30\s*(?:hr|hari)/i] }, // V.Axis 6,5/30 & 7GB/30HR
-  { op: "axis", row: 41, regex: [/(?<!\d)10[\s\/]+30\b/i, /(?<!\d)10\s*gb.*30\s*(?:hr|hari)/i] }, // V.Axis 10/30
-  { op: "axis", row: 42, regex: [/(?<!\d)(?:16|15)[\s\/]+(?:28|30)\b/i, /(?<!\d)(?:16|15)\s*gb.*(?:28|30)\s*(?:hr|hari)/i] }, // V.Axis 16/30 & 15GB/28HR
+  { op: "axis", row: 25, regex: [/(?<!\d)(?:3|8)[\s\/]+1\b/i, /(?<!\d)(?:3|8)\s*gb.*1\s*(?:hr|hari)/i] }, // 25. V.Axis 3/1 & 8GB/1HR
+  { op: "axis", row: 26, regex: [/(?<!\d)3[\s\/]+3\b/i, /(?<!\d)3\s*gb.*3\s*(?:hr|hari)/i] }, // 26. V.Axis 3/3
+  { op: "axis", row: 27, regex: [/(?<!\d)5[\s\/]+3\b/i, /(?<!\d)5\s*gb.*3\s*(?:hr|hari)/i] }, // 27. V.Axis 5/3
+  { op: "axis", row: 28, regex: [/(?<!\d)4[\s\/]+5\b/i, /(?<!\d)4\s*gb.*5\s*(?:hr|hari)/i] }, // 28. V.Axis 4/5
+  { op: "axis", row: 29, regex: [/(?<!\d)5[\s\/]+5\b/i, /(?<!\d)5\s*gb.*5\s*(?:hr|hari)/i] }, // 29. V/Axis 5/5
+  { op: "axis", row: 30, regex: [/(?<!\d)(?:10|13)[\s\/]+3\b/i, /(?<!\d)(?:10|13)\s*gb.*3\s*(?:hr|hari)/i] }, // 30. V.Axis 10/3 & 13GB/3HR
+  { op: "axis", row: 31, regex: [/(?<!\d)16[\s\/]+5\b/i, /(?<!\d)16\s*gb.*5\s*(?:hr|hari)/i] }, // 31. V.Axis 16/5
+  { op: "axis", row: 32, regex: [/(?<!\d)(?:25|24)[\s\/]+5\b/i, /(?<!\d)(?:25|24)\s*gb.*5\s*(?:hr|hari)/i] }, // 32. V.Axis 25/5 & 24GB/5HR
+  { op: "axis", row: 33, regex: [/(?<!\d)17[\s\/]+7\b/i, /(?<!\d)17\s*gb.*7\s*(?:hr|hari)/i] }, // 33. V.Axis 17/7
+  { op: "axis", row: 34, regex: [/(?<!\d)5[\s\/]+(?:14|15)\b/i, /(?<!\d)5\s*gb.*(?:14|15)\s*(?:hr|hari)/i] }, // 34. V.Axis 5/15 & 5GB/14HR
+  { op: "axis", row: 35, regex: [/(?<!\d)25[\s\/]+15\b/i, /(?<!\d)25\s*gb.*15\s*(?:hr|hari)/i] }, // 35. V.Axis 25/15
+  { op: "axis", row: 36, regex: [/(?<!\d)(?:6[,.]5|7)[\s\/]+30\b/i, /(?<!\d)(?:6[,.]5|7)\s*gb.*30\s*(?:hr|hari)/i] }, // 36. V.Axis 6,5/30 & 7GB/30HR
+  { op: "axis", row: 37, regex: [/(?<!\d)10[\s\/]+30\b/i, /(?<!\d)10\s*gb.*30\s*(?:hr|hari)/i] }, // 37. V.Axis 10/30
+  { op: "axis", row: 38, regex: [/(?<!\d)(?:16|15)[\s\/]+(?:28|30)\b/i, /(?<!\d)(?:16|15)\s*gb.*(?:28|30)\s*(?:hr|hari)/i] }, // 38. V.Axis 16/30 & 15GB/28HR
 ];
 
 export function getExcelRowRank(operator: string, nominal: string): number {
