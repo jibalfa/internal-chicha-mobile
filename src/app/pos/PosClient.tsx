@@ -449,18 +449,45 @@ export default function PosClient({
     );
   };
 
-  // Edit Item Unit Price
+  // Real-time Dynamic Edit Item Unit Price
   const startEditPrice = (item: CartItem) => {
     setEditingPriceItemId(item.id);
-    setTempEditPrice(String(item.unitPrice));
+    setTempEditPrice(item.unitPrice > 0 ? String(item.unitPrice) : "");
   };
 
-  const saveEditPrice = (id: string) => {
-    const parsed = Math.max(0, parseInt(tempEditPrice, 10) || 0);
-    setCart(
-      cart.map((item) => (item.id === id ? { ...item, unitPrice: parsed } : item))
+  const handlePriceChange = (id: string, rawVal: string) => {
+    // Only accept numeric digits
+    const digitsOnly = rawVal.replace(/[^\d]/g, "");
+    setTempEditPrice(digitsOnly);
+
+    // Live update item price immediately in cart state
+    const parsed = digitsOnly === "" ? 0 : parseInt(digitsOnly, 10);
+    setCart((prevCart) =>
+      prevCart.map((item) => (item.id === id ? { ...item, unitPrice: parsed } : item))
     );
+  };
+
+  const finishEditPrice = (id: string) => {
+    // If cashier left it blank, fallback to original price
+    if (tempEditPrice === "") {
+      const item = cart.find((i) => i.id === id);
+      const fallbackPrice = item?.originalPrice || 0;
+      setCart((prevCart) =>
+        prevCart.map((i) => (i.id === id ? { ...i, unitPrice: fallbackPrice } : i))
+      );
+    }
     setEditingPriceItemId(null);
+  };
+
+  const resetItemPrice = (id: string) => {
+    setCart((prevCart) =>
+      prevCart.map((item) =>
+        item.id === id ? { ...item, unitPrice: item.originalPrice } : item
+      )
+    );
+    if (editingPriceItemId === id) {
+      setEditingPriceItemId(null);
+    }
   };
 
   const removeFromCart = (id: string) => {
@@ -897,49 +924,70 @@ export default function PosClient({
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-slate-800 truncate">{item.itemName}</p>
                       
-                      {/* Price display with edit trigger */}
+                      {/* Price display with real-time dynamic edit */}
                       {editingPriceItemId === item.id ? (
-                        <div className="flex items-center gap-1 mt-1">
-                          <input
-                            type="number"
-                            min={0}
-                            value={tempEditPrice}
-                            onChange={(e) => setTempEditPrice(e.target.value)}
-                            className="w-24 px-1.5 py-0.5 text-xs font-mono font-bold border border-indigo-400 rounded bg-white text-indigo-700"
-                            autoFocus
-                          />
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <div className="relative flex items-center">
+                            <span className="absolute left-2 text-[10px] font-bold text-slate-400 select-none">
+                              Rp
+                            </span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={tempEditPrice}
+                              onChange={(e) => handlePriceChange(item.id, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  finishEditPrice(item.id);
+                                } else if (e.key === "Escape") {
+                                  finishEditPrice(item.id);
+                                }
+                              }}
+                              onBlur={() => finishEditPrice(item.id)}
+                              onFocus={(e) => e.target.select()}
+                              className="w-28 pl-7 pr-2 py-0.5 text-xs font-mono font-extrabold border-2 border-indigo-500 rounded-lg bg-white text-indigo-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              autoFocus
+                              placeholder="0"
+                            />
+                          </div>
                           <button
                             type="button"
-                            onClick={() => saveEditPrice(item.id)}
-                            className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-[10px]"
-                            title="Simpan Harga"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              finishEditPrice(item.id);
+                            }}
+                            className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold shadow-sm transition-all shrink-0"
+                            title="Selesai ubah harga"
                           >
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingPriceItemId(null)}
-                            className="p-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-[10px]"
-                            title="Batal"
-                          >
-                            <X className="w-3 h-3" />
+                            OK
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
                           <button
                             type="button"
                             onClick={() => startEditPrice(item)}
-                            className="group flex items-center gap-1 text-[11px] font-mono font-semibold text-slate-600 hover:text-indigo-600 transition-colors"
-                            title="Klik untuk ubah harga jual"
+                            className="group flex items-center gap-1 text-[11px] font-mono font-bold text-slate-700 hover:text-indigo-600 transition-colors bg-slate-50 hover:bg-indigo-50 px-1.5 py-0.5 rounded-md border border-slate-200 hover:border-indigo-200"
+                            title="Klik untuk ubah harga jual item ini"
                           >
                             <span>{formatRupiah(item.unitPrice)}</span>
                             <Edit2 className="w-2.5 h-2.5 text-slate-400 group-hover:text-indigo-600" />
                           </button>
                           {item.unitPrice !== item.originalPrice && (
-                            <span className="px-1 py-0.2 text-[9px] bg-amber-50 text-amber-700 font-bold rounded border border-amber-200">
-                              Khusus
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="px-1.5 py-0.5 text-[9px] bg-amber-50 text-amber-700 font-extrabold rounded-md border border-amber-200">
+                                Khusus
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => resetItemPrice(item.id)}
+                                className="text-[9px] text-slate-400 hover:text-indigo-600 underline font-medium transition-colors"
+                                title={`Reset ke harga normal (${formatRupiah(item.originalPrice)})`}
+                              >
+                                Reset
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}
