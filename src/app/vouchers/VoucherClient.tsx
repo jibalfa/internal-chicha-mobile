@@ -70,7 +70,7 @@ interface VoucherClientProps {
   userRole: string;
 }
 
-const POPULAR_OPERATORS = ["Semua", "Telkomsel", "Indosat", "XL", "Tri", "Smartfren", "Axis"];
+const POPULAR_OPERATORS = ["Semua", "Telkomsel", "Smartfren", "Tri", "XL", "Indosat", "Axis"];
 
 export default function VoucherClient({
   initialVouchers,
