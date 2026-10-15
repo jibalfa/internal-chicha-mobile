@@ -30,6 +30,8 @@ import {
   Clock,
   Edit2,
   Check,
+  ScanBarcode,
+  Camera,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
 import { sortVouchers } from "@/lib/voucher-sort";
@@ -39,10 +41,14 @@ import {
   PrintSaleData,
   PrinterConnectionType,
 } from "@/lib/bluetoothPrinter";
+import BarcodeScannerModal from "@/components/BarcodeScannerModal";
+import { useBarcodeScanner } from "@/lib/useBarcodeScanner";
+import { playSuccessBeep, playErrorBeep } from "@/lib/sound";
 
 interface Product {
   id: string;
   sku: string;
+  barcode?: string | null;
   name: string;
   brand: string | null;
   costPrice: number;
@@ -215,6 +221,14 @@ export default function PosClient({
     (storeSetting.paperWidth as any) === "80mm" ? "80mm" : "58mm"
   );
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState<boolean>(false);
+
+  // QR & Barcode Scanner State
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState<boolean>(false);
+  const [scanToast, setScanToast] = useState<{
+    type: "success" | "warning" | "error";
+    text: string;
+    detail?: string;
+  } | null>(null);
 
   // Sync cart & customer to local storage
   useEffect(() => {
@@ -449,6 +463,96 @@ export default function PosClient({
     );
   };
 
+  // Barcode / QR Scan Handler (handles camera scan & hardware barcode gun)
+  const handleBarcodeScanned = (scannedCode: string) => {
+    const code = scannedCode.trim();
+    if (!code) return;
+
+    // 1. Search products by Barcode or SKU
+    const matchedProduct = products.find(
+      (p) =>
+        (p.barcode && p.barcode.toLowerCase() === code.toLowerCase()) ||
+        p.sku.toLowerCase() === code.toLowerCase()
+    );
+
+    if (matchedProduct) {
+      if (matchedProduct.stock <= 0) {
+        playErrorBeep();
+        setScanToast({
+          type: "warning",
+          text: `Stok produk "${matchedProduct.name}" habis (0)!`,
+        });
+        setTimeout(() => setScanToast(null), 3000);
+        return;
+      }
+
+      const inCart = cart.find((i) => i.productId === matchedProduct.id);
+      if (inCart && inCart.quantity >= matchedProduct.stock) {
+        playErrorBeep();
+        setScanToast({
+          type: "warning",
+          text: `Stok tidak mencukupi untuk menambah "${matchedProduct.name}" lagi.`,
+          detail: `Maksimal stok tersedia: ${matchedProduct.stock}`,
+        });
+        setTimeout(() => setScanToast(null), 3000);
+        return;
+      }
+
+      addProductToCart(matchedProduct);
+      playSuccessBeep();
+      setScanToast({
+        type: "success",
+        text: `+1 ${matchedProduct.name} ditambahkan`,
+        detail: `Barcode: ${matchedProduct.barcode || matchedProduct.sku} • Rp ${matchedProduct.sellingPrice.toLocaleString("id-ID")}`,
+      });
+      setTimeout(() => setScanToast(null), 2500);
+      return;
+    }
+
+    // 2. Search vouchers by Operator-Nominal or Nominal
+    const matchedVoucher = vouchers.find(
+      (v) =>
+        `${v.operator}-${v.nominal}`.toLowerCase() === code.toLowerCase() ||
+        `${v.operator} ${v.nominal}`.toLowerCase() === code.toLowerCase()
+    );
+
+    if (matchedVoucher) {
+      if (matchedVoucher.stock <= 0) {
+        playErrorBeep();
+        setScanToast({
+          type: "warning",
+          text: `Stok voucher "${matchedVoucher.operator} ${matchedVoucher.nominal}" habis!`,
+        });
+        setTimeout(() => setScanToast(null), 3000);
+        return;
+      }
+
+      addVoucherToCart(matchedVoucher);
+      playSuccessBeep();
+      setScanToast({
+        type: "success",
+        text: `+1 Voucher ${matchedVoucher.operator} ${matchedVoucher.nominal} ditambahkan`,
+      });
+      setTimeout(() => setScanToast(null), 2500);
+      return;
+    }
+
+    // 3. Not found
+    playErrorBeep();
+    setScanToast({
+      type: "error",
+      text: `Produk dengan kode "${code}" tidak ditemukan di database SQLite lokal.`,
+      detail: "Pastikan barcode sudah didaftarkan pada menu Master Produk.",
+    });
+    setTimeout(() => setScanToast(null), 3500);
+  };
+
+  // Listen to USB / Wireless / Bluetooth Barcode Scanner Guns
+  useBarcodeScanner({
+    onScan: handleBarcodeScanned,
+    enabled: true,
+  });
+
   // Real-time Dynamic Edit Item Unit Price
   const startEditPrice = (item: CartItem) => {
     setEditingPriceItemId(item.id);
@@ -633,6 +737,7 @@ export default function PosClient({
       p.stock > 0 &&
       (p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.sku.toLowerCase().includes(search.toLowerCase()) ||
+        (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase())) ||
         (p.brand && p.brand.toLowerCase().includes(search.toLowerCase())))
   );
 
@@ -762,16 +867,35 @@ export default function PosClient({
                 </button>
               </div>
 
-              {/* Search input */}
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Cari item kasir..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+              {/* Search input & Camera Scan Button */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    data-barcode-target="true"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && search.trim()) {
+                        handleBarcodeScanned(search.trim());
+                        setSearch("");
+                      }
+                    }}
+                    placeholder="Cari item / scan barcode..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCameraScannerOpen(true)}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 flex items-center gap-1.5 transition whitespace-nowrap"
+                  title="Buka Kamera Scan QR & Barcode"
+                >
+                  <ScanBarcode className="w-4 h-4" />
+                  <span className="hidden sm:inline">Scan Barcode / QR</span>
+                </button>
               </div>
             </div>
           </div>
@@ -790,7 +914,9 @@ export default function PosClient({
                   >
                     <div>
                       <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1">
-                        <span className="font-mono">{p.sku}</span>
+                        <span className="font-mono text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded" title="Kode Barcode / QR">
+                          {p.barcode || p.sku}
+                        </span>
                         <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
                           Stok: {p.stock}
                         </span>
@@ -1641,6 +1767,49 @@ export default function PosClient({
           </div>
         </div>
       )}
+
+      {/* Floating Scan Toast Banner */}
+      {scanToast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce duration-300">
+          <div
+            className={`px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-3 backdrop-blur-md ${
+              scanToast.type === "success"
+                ? "bg-emerald-950/90 text-white border-emerald-500/50 shadow-emerald-900/30"
+                : scanToast.type === "warning"
+                ? "bg-amber-950/90 text-white border-amber-500/50 shadow-amber-900/30"
+                : "bg-rose-950/90 text-white border-rose-500/50 shadow-rose-900/30"
+            }`}
+          >
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                scanToast.type === "success"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : scanToast.type === "warning"
+                  ? "bg-amber-500/20 text-amber-400"
+                  : "bg-rose-500/20 text-rose-400"
+              }`}
+            >
+              <ScanBarcode className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold">{scanToast.text}</p>
+              {scanToast.detail && (
+                <p className="text-[11px] text-slate-300 opacity-90">{scanToast.detail}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POS Camera Barcode Scanner Modal (Continuous Mode for rapid retail checkout) */}
+      <BarcodeScannerModal
+        isOpen={isCameraScannerOpen}
+        onClose={() => setIsCameraScannerOpen(false)}
+        title="POS Live Scanner Barcode / QR"
+        subtitle="Arahkan kamera ke barcode kemasan barang untuk langsung masuk keranjang"
+        continuous={true}
+        onScan={handleBarcodeScanned}
+      />
     </div>
   );
 }

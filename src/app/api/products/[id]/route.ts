@@ -5,6 +5,7 @@ import { z } from "zod";
 
 const updateProductSchema = z.object({
   sku: z.string().min(2).optional(),
+  barcode: z.string().optional().nullable(),
   name: z.string().min(2).optional(),
   categoryId: z.string().optional(),
   brand: z.string().optional().nullable(),
@@ -60,9 +61,33 @@ export async function PUT(
       return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 });
     }
 
-    const updated = await prisma.product.update({
+    const dataToUpdate: any = { ...parsed.data };
+    if (dataToUpdate.sku) {
+      dataToUpdate.sku = dataToUpdate.sku.trim().toUpperCase();
+      const existingSku = await prisma.product.findFirst({
+        where: { sku: dataToUpdate.sku, NOT: { id: params.id } },
+      });
+      if (existingSku) {
+        return NextResponse.json({ error: `SKU "${dataToUpdate.sku}" sudah digunakan produk lain` }, { status: 409 });
+      }
+    }
+
+    if (dataToUpdate.barcode !== undefined) {
+      const cleanBarcode = dataToUpdate.barcode && dataToUpdate.barcode.trim() !== "" ? dataToUpdate.barcode.trim() : null;
+      dataToUpdate.barcode = cleanBarcode;
+      if (cleanBarcode) {
+        const existingBarcode = await (prisma.product as any).findFirst({
+          where: { barcode: cleanBarcode, NOT: { id: params.id } },
+        });
+        if (existingBarcode) {
+          return NextResponse.json({ error: `Barcode "${cleanBarcode}" sudah digunakan oleh produk lain (${existingBarcode.name})` }, { status: 409 });
+        }
+      }
+    }
+
+    const updated = await (prisma.product as any).update({
       where: { id: params.id },
-      data: parsed.data,
+      data: dataToUpdate,
       include: { category: true, supplier: true },
     });
 

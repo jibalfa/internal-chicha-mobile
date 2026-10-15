@@ -56,6 +56,7 @@ model Supplier {
 model Product {
   id                 String              @id @default(cuid())
   sku                String              @unique
+  barcode            String?             @unique
   name               String
   categoryId         String
   brand              String?

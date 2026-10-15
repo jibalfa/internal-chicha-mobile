@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const createProductSchema = z.object({
-  sku: z.string().min(2, "SKU minimal 2 karakter"),
+  sku: z.string().optional().nullable(),
+  barcode: z.string().optional().nullable(),
   name: z.string().min(2, "Nama produk minimal 2 karakter"),
   categoryId: z.string().min(1, "Kategori wajib dipilih"),
   brand: z.string().optional(),
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
       where.OR = [
         { name: { contains: search } },
         { sku: { contains: search } },
+        { barcode: { contains: search } },
         { brand: { contains: search } },
       ];
     }
@@ -87,6 +89,7 @@ export async function POST(request: NextRequest) {
 
     const {
       sku,
+      barcode,
       name,
       categoryId,
       brand,
@@ -98,18 +101,45 @@ export async function POST(request: NextRequest) {
       type,
     } = parsed.data;
 
-    const existing = await prisma.product.findUnique({
-      where: { sku: sku.trim().toUpperCase() },
+    const rawBarcode = barcode && barcode.trim() !== "" ? barcode.trim() : null;
+    const rawSku = sku && sku.trim() !== "" ? sku.trim().toUpperCase() : null;
+
+    // Unifikasi: jadikan barcode sebagai identitas utama.
+    // Jika SKU tidak diisi, samakan dengan barcode. Jika barcode tidak diisi, samakan dengan SKU.
+    let finalBarcode = rawBarcode;
+    let finalSku = rawSku;
+
+    if (!finalBarcode && !finalSku) {
+      finalBarcode = "899" + Math.floor(100000000 + Math.random() * 900000000);
+      finalSku = finalBarcode;
+    } else if (finalBarcode && !finalSku) {
+      finalSku = finalBarcode.toUpperCase();
+    } else if (!finalBarcode && finalSku) {
+      finalBarcode = finalSku;
+    }
+
+    const existingSku = await prisma.product.findUnique({
+      where: { sku: finalSku! },
     });
-    if (existing) {
-      return NextResponse.json({ error: `SKU "${sku}" sudah digunakan` }, { status: 409 });
+    if (existingSku) {
+      return NextResponse.json({ error: `Kode Barcode/SKU "${finalSku}" sudah digunakan oleh produk "${existingSku.name}"` }, { status: 409 });
+    }
+
+    if (finalBarcode) {
+      const existingBarcode = await (prisma.product as any).findFirst({
+        where: { barcode: finalBarcode },
+      });
+      if (existingBarcode) {
+        return NextResponse.json({ error: `Barcode "${finalBarcode}" sudah digunakan oleh produk lain (${existingBarcode.name})` }, { status: 409 });
+      }
     }
 
     // Atomic transaction: create product + initial movement
     const product = await prisma.$transaction(async (tx) => {
-      const newProd = await tx.product.create({
+      const newProd = await (tx.product as any).create({
         data: {
-          sku: sku.trim().toUpperCase(),
+          sku: finalSku,
+          barcode: finalBarcode,
           name: name.trim(),
           categoryId,
           brand: brand?.trim() || null,

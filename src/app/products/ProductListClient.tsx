@@ -13,8 +13,12 @@ import {
   Trash2,
   CheckCircle2,
   TrendingUp,
+  ScanBarcode,
+  Camera,
+  Sparkles,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
+import BarcodeScannerModal from "@/components/BarcodeScannerModal";
 
 interface Category {
   id: string;
@@ -32,6 +36,7 @@ interface Supplier {
 interface Product {
   id: string;
   sku: string;
+  barcode?: string | null;
   name: string;
   categoryId: string;
   brand: string | null;
@@ -80,6 +85,7 @@ export default function ProductListClient({
   // Form states
   const [formData, setFormData] = useState({
     sku: "",
+    barcode: "",
     name: "",
     categoryId: categories[0]?.id || "",
     brand: "",
@@ -90,6 +96,8 @@ export default function ProductListClient({
     supplierId: suppliers[0]?.id || "",
     type: "ACCESSORY" as "ACCESSORY" | "GENERAL",
   });
+
+  const [scannerTarget, setScannerTarget] = useState<"ADD_FORM" | "EDIT_FORM" | null>(null);
 
   const [categoryForm, setCategoryForm] = useState({ name: "", description: "" });
   const [supplierForm, setSupplierForm] = useState({ name: "", phone: "", contactPerson: "", address: "" });
@@ -109,6 +117,7 @@ export default function ProductListClient({
     const matchesSearch =
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.sku.toLowerCase().includes(search.toLowerCase()) ||
+      (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase())) ||
       (p.brand && p.brand.toLowerCase().includes(search.toLowerCase()));
 
     const matchesType = selectedType === "ALL" || p.type === selectedType;
@@ -129,6 +138,7 @@ export default function ProductListClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          barcode: formData.barcode?.trim() || null,
           costPrice: Number(formData.costPrice),
           sellingPrice: Number(formData.sellingPrice),
           stock: Number(formData.stock),
@@ -144,6 +154,7 @@ export default function ProductListClient({
       setIsAddProductOpen(false);
       setFormData({
         sku: "",
+        barcode: "",
         name: "",
         categoryId: categories[0]?.id || "",
         brand: "",
@@ -173,6 +184,7 @@ export default function ProductListClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sku: editingProduct.sku,
+          barcode: editingProduct.barcode?.trim() || null,
           name: editingProduct.name,
           categoryId: editingProduct.categoryId,
           brand: editingProduct.brand,
@@ -277,7 +289,7 @@ export default function ProductListClient({
             <span>Katalog Produk & Inventaris</span>
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Pengelolaan stok fisik aksesoris dan sparepart dengan SKU unik dan pelacakan mutasi
+            Pengelolaan stok fisik aksesoris dan sparepart dengan Barcode/QR Code dan pelacakan mutasi
           </p>
         </div>
 
@@ -400,7 +412,7 @@ export default function ProductListClient({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari SKU, Nama, Brand..."
+              placeholder="Cari Barcode, Nama, Brand..."
               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -441,7 +453,7 @@ export default function ProductListClient({
           <table className="w-full text-left text-sm text-slate-600">
             <thead className="bg-slate-50 text-[11px] uppercase font-semibold text-slate-500 border-b border-slate-200/80">
               <tr>
-                <th className="px-5 py-3.5">SKU & Produk</th>
+                <th className="px-5 py-3.5">Kode Barcode & Produk</th>
                 <th className="px-5 py-3.5">Tipe & Kategori</th>
                 {userRole === "OWNER" && <th className="px-5 py-3.5">Harga Modal</th>}
                 <th className="px-5 py-3.5">Harga Jual</th>
@@ -465,9 +477,12 @@ export default function ProductListClient({
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-5 py-3.5">
-                        <span className="font-mono text-[11px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                          {p.sku}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded" title="Kode Barcode / QR">
+                            <ScanBarcode className="w-3 h-3 text-emerald-600" />
+                            {p.barcode || p.sku}
+                          </span>
+                        </div>
                         <p className="font-semibold text-slate-900 mt-1">{p.name}</p>
                         {p.brand && <p className="text-[11px] text-slate-400">{p.brand}</p>}
                       </td>
@@ -561,7 +576,7 @@ export default function ProductListClient({
             )}
 
             <form onSubmit={handleCreateProduct} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Tipe Produk
@@ -569,7 +584,7 @@ export default function ProductListClient({
                   <select
                     value={formData.type}
                     onChange={(e: any) => setFormData({ ...formData, type: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-indigo-500 font-medium"
                   >
                     <option value="ACCESSORY">Aksesoris Fisik</option>
                     <option value="GENERAL">Umum / Lainnya</option>
@@ -577,17 +592,44 @@ export default function ProductListClient({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Kode SKU (Unik)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.sku}
-                    onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
-                    placeholder="Contoh: ACC-CHG-65W"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 uppercase focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Kode Barcode / QR (Kunci)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const randomEan = "899" + Math.floor(100000000 + Math.random() * 900000000);
+                        setFormData({ ...formData, barcode: randomEan, sku: randomEan });
+                      }}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1 transition"
+                    >
+                      <Sparkles className="w-3 h-3" /> Auto Barcode
+                    </button>
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      required
+                      value={formData.barcode}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, barcode: val, sku: val });
+                      }}
+                      placeholder="Scan atau klik Auto Barcode..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-20 py-2 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500 font-bold"
+                    />
+                    <div className="absolute right-1.5 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setScannerTarget("ADD_FORM")}
+                        className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition"
+                        title="Scan kemasan lewat kamera HP / Laptop"
+                      >
+                        <Camera className="w-3 h-3" /> Scan
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -763,6 +805,45 @@ export default function ProductListClient({
             </div>
 
             <form onSubmit={handleUpdateProduct} className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Kode Barcode / QR (Kunci Produk)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const randomEan = "899" + Math.floor(100000000 + Math.random() * 900000000);
+                      setEditingProduct({ ...editingProduct, barcode: randomEan, sku: randomEan });
+                    }}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-0.5"
+                  >
+                    <Sparkles className="w-3 h-3" /> Auto Barcode
+                  </button>
+                </div>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    required
+                    value={editingProduct.barcode || editingProduct.sku || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditingProduct({ ...editingProduct, barcode: val, sku: val });
+                    }}
+                    placeholder="Scan / ketik barcode produk..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3 pr-16 py-2 text-xs text-slate-800 font-mono font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setScannerTarget("EDIT_FORM")}
+                    className="absolute right-1 px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition"
+                    title="Scan Barcode Kemasan"
+                  >
+                    <Camera className="w-3 h-3" /> Scan
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Nama Produk
@@ -1008,8 +1089,8 @@ export default function ProductListClient({
                 <span className="font-bold text-slate-900">{productToDelete.name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">SKU:</span>
-                <span className="font-mono font-semibold text-slate-700">{productToDelete.sku}</span>
+                <span className="text-slate-500 font-medium">Kode Barcode:</span>
+                <span className="font-mono font-semibold text-slate-700">{productToDelete.barcode || productToDelete.sku}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 font-medium">Stok Saat Ini:</span>
@@ -1042,6 +1123,26 @@ export default function ProductListClient({
           </div>
         </div>
       )}
+
+      {/* Barcode & QR Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={scannerTarget !== null}
+        onClose={() => setScannerTarget(null)}
+        title="Scan Barcode / QR Produk"
+        subtitle="Arahkan kamera ke barcode kemasan untuk input otomatis"
+        continuous={false}
+        onScan={(code) => {
+          if (scannerTarget === "ADD_FORM") {
+            setFormData((prev) => ({
+              ...prev,
+              barcode: code,
+              sku: code,
+            }));
+          } else if (scannerTarget === "EDIT_FORM" && editingProduct) {
+            setEditingProduct((prev) => (prev ? { ...prev, barcode: code, sku: code } : null));
+          }
+        }}
+      />
     </div>
   );
 }
