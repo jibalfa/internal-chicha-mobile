@@ -4,20 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { calculateDigitalProfit } from "@/lib/calculations";
 import { z } from "zod";
 
-const createDigitalTransactionSchema = z.object({
-  digitalProductId: z.string().optional(),
-  category: z.string().optional(),
-  nominal: z.number().min(0).optional(),
-  adminFee: z.number().min(0).optional().default(2000),
-  destinationNumber: z.string().optional(),
-  status: z.enum(["PENDING", "SUCCESS", "FAILED", "REFUNDED"]).default("SUCCESS"),
-  notes: z.string().optional(),
-});
 
 // Helper to generate transaction number: DGT-YYYYMMDD-XXXX
-async function generateDigitalTrxNumber(): Promise<string> {
-  const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+async function generateDigitalTrxNumber(targetDate: Date = new Date()): Promise<string> {
+  const year = targetDate.getFullYear();
+  const month = String(targetDate.getMonth() + 1).padStart(2, "0");
+  const day = String(targetDate.getDate()).padStart(2, "0");
+  const dateStr = `${year}${month}${day}`;
   const prefix = `DGT-${dateStr}`;
 
   const lastTrx = await prisma.digitalTransaction.findFirst({
@@ -37,12 +30,25 @@ async function generateDigitalTrxNumber(): Promise<string> {
   return `${prefix}-${String(counter).padStart(4, "0")}`;
 }
 
+const createDigitalTransactionSchema = z.object({
+  digitalProductId: z.string().optional(),
+  category: z.string().optional(),
+  nominal: z.number().min(0).optional(),
+  adminFee: z.number().min(0).optional().default(2000),
+  destinationNumber: z.string().optional(),
+  status: z.enum(["PENDING", "SUCCESS", "FAILED", "REFUNDED"]).default("SUCCESS"),
+  notes: z.string().optional(),
+  date: z.string().optional(), // YYYY-MM-DD
+  time: z.string().optional(), // HH:mm
+});
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
     const category = searchParams.get("category");
     const search = searchParams.get("search")?.trim() || "";
+    const dateParam = searchParams.get("date");
     const limit = parseInt(searchParams.get("limit") || "100", 10);
 
     const where: any = {};
@@ -59,8 +65,20 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const session = await getSession();
-    const isOwner = session?.role === "OWNER";
+    if (dateParam && dateParam !== "ALL") {
+      const parts = dateParam.split("-");
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const startOfDay = new Date(year, month, day, 0, 0, 0, 0);
+        const endOfDay = new Date(year, month, day, 23, 59, 59, 999);
+        where.createdAt = {
+          gte: startOfDay,
+          lte: endOfDay,
+        };
+      }
+    }
 
     const transactions = await prisma.digitalTransaction.findMany({
       where,
@@ -69,14 +87,10 @@ export async function GET(request: NextRequest) {
         cashier: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: limit,
+      take: dateParam && dateParam !== "ALL" ? 500 : limit,
     });
 
-    // Pada transaksi digital, nominal disimpan di costPrice dan biaya admin di profit
-    // Kasir maupun Owner dapat melihat nominal dan biaya admin transaksi digital
-    const sanitizedTransactions = transactions;
-
-    return NextResponse.json({ transactions: sanitizedTransactions });
+    return NextResponse.json({ transactions });
   } catch (error) {
     console.error("GET Digital Transactions Error:", error);
     return NextResponse.json(
@@ -107,7 +121,33 @@ export async function POST(request: NextRequest) {
       destinationNumber,
       status,
       notes,
+      date,
+      time,
     } = parsed.data;
+
+    // Determine target record date (supports past dates)
+    const now = new Date();
+    let recordDate = new Date();
+    if (date) {
+      const parts = date.split("-");
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        let hours = now.getHours();
+        let minutes = now.getMinutes();
+        let seconds = now.getSeconds();
+        if (time) {
+          const tParts = time.split(":");
+          if (tParts.length >= 2) {
+            hours = parseInt(tParts[0], 10) || 0;
+            minutes = parseInt(tParts[1], 10) || 0;
+            seconds = 0;
+          }
+        }
+        recordDate = new Date(y, m, d, hours, minutes, seconds);
+      }
+    }
 
     let targetProductId = digitalProductId;
     let costPrice = 0;
@@ -143,7 +183,7 @@ export async function POST(request: NextRequest) {
       targetProductId = genericProduct.id;
       costPrice = cleanNominal;
       sellingPrice = cleanNominal + cleanAdminFee;
-      profit = cleanAdminFee;
+      profit = (status === "FAILED" || status === "REFUNDED") ? 0 : cleanAdminFee;
     } else if (digitalProductId) {
       const product = await prisma.digitalProduct.findUnique({
         where: { id: digitalProductId },
@@ -160,7 +200,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Kategori atau produk digital wajib ditentukan" }, { status: 400 });
     }
 
-    const trxNumber = await generateDigitalTrxNumber();
+    const trxNumber = await generateDigitalTrxNumber(recordDate);
 
     const transaction = await prisma.digitalTransaction.create({
       data: {
@@ -173,6 +213,7 @@ export async function POST(request: NextRequest) {
         status,
         notes: notes?.trim() || null,
         cashierId: session.userId,
+        createdAt: recordDate,
       },
       include: {
         digitalProduct: true,
