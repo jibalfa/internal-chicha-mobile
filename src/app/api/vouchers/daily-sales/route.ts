@@ -17,6 +17,7 @@ const batchSalesSchema = z.object({
 const correctionSchema = z.object({
   saleItemId: z.string(),
   newQuantity: z.number().int().min(0),
+  newUnitPrice: z.number().min(0).optional(),
 });
 
 // GET recorded voucher sales for a specific date (defaults to today)
@@ -273,7 +274,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 });
     }
 
-    const { saleItemId, newQuantity } = parsed.data;
+    const { saleItemId, newQuantity, newUnitPrice } = parsed.data;
 
     const updatedSaleItem = await prisma.$transaction(async (tx) => {
       const existingItem = await tx.saleItem.findUnique({
@@ -285,49 +286,81 @@ export async function PUT(request: NextRequest) {
         throw new Error("Pencatatan penjualan tidak ditemukan.");
       }
 
+      const unitPriceToUse =
+        newUnitPrice !== undefined && newUnitPrice !== null && !isNaN(newUnitPrice)
+          ? newUnitPrice
+          : existingItem.unitPrice;
+
       const diff = newQuantity - existingItem.quantity;
-      if (diff === 0) return existingItem; // No change
+      const priceDiff = unitPriceToUse !== existingItem.unitPrice;
+
+      if (diff === 0 && !priceDiff) return existingItem; // No change
 
       const voucher = existingItem.voucher;
-      if (!voucher) {
-        throw new Error("Data voucher tidak ditemukan.");
+
+      if (diff !== 0) {
+        if (!voucher) {
+          throw new Error("Data voucher tidak ditemukan untuk penyesuaian stok.");
+        }
+
+        // Check stock availability if increasing sold quantity
+        if (diff > 0 && voucher.stock < diff) {
+          throw new Error(
+            `Stok voucher ${voucher.operator} ${voucher.nominal} tidak mencukupi (sisa persediaan fisik: ${voucher.stock} pcs)`
+          );
+        }
+
+        const previousStock = voucher.stock;
+        const newStock = previousStock - diff;
+
+        // Update voucher stock
+        await tx.voucher.update({
+          where: { id: voucher.id },
+          data: { stock: newStock },
+        });
+
+        const changeNotes = [
+          `kuantitas ${existingItem.quantity} -> ${newQuantity} pcs`,
+          ...(priceDiff
+            ? [
+                `harga Rp ${existingItem.unitPrice.toLocaleString("id-ID")} -> Rp ${unitPriceToUse.toLocaleString("id-ID")}`,
+              ]
+            : []),
+        ].join(", ");
+
+        // Record movement adjustment
+        await tx.voucherMovement.create({
+          data: {
+            voucherId: voucher.id,
+            type: "ADJUSTMENT",
+            quantity: Math.abs(diff),
+            previousStock,
+            newStock,
+            notes: `Koreksi rekap penjualan: ${changeNotes} (Faktur: #${existingItem.sale?.invoiceNumber || ""})`,
+          },
+        });
+      } else if (priceDiff && voucher) {
+        // Record movement adjustment note for price change even if quantity unchanged
+        await tx.voucherMovement.create({
+          data: {
+            voucherId: voucher.id,
+            type: "ADJUSTMENT",
+            quantity: 0,
+            previousStock: voucher.stock,
+            newStock: voucher.stock,
+            notes: `Koreksi harga penjualan voucher: Rp ${existingItem.unitPrice.toLocaleString("id-ID")} -> Rp ${unitPriceToUse.toLocaleString("id-ID")} (${newQuantity} pcs) (Faktur: #${existingItem.sale?.invoiceNumber || ""})`,
+          },
+        });
       }
 
-      // Check stock availability if increasing sold quantity
-      if (diff > 0 && voucher.stock < diff) {
-        throw new Error(
-          `Stok voucher ${voucher.operator} ${voucher.nominal} tidak mencukupi (sisa persediaan fisik: ${voucher.stock} pcs)`
-        );
-      }
-
-      const previousStock = voucher.stock;
-      const newStock = previousStock - diff;
-
-      // Update voucher stock
-      await tx.voucher.update({
-        where: { id: voucher.id },
-        data: { stock: newStock },
-      });
-
-      // Record movement adjustment
-      await tx.voucherMovement.create({
-        data: {
-          voucherId: voucher.id,
-          type: "ADJUSTMENT",
-          quantity: Math.abs(diff),
-          previousStock,
-          newStock,
-          notes: `Koreksi rekap penjualan dari ${existingItem.quantity} pcs ke ${newQuantity} pcs (Faktur: #${existingItem.sale?.invoiceNumber || ""})`,
-        },
-      });
-
-      // Update sale item subtotal & profit
-      const newSubtotal = newQuantity * existingItem.unitPrice;
-      const newProfit = newQuantity * (existingItem.unitPrice - existingItem.costPrice);
+      // Update sale item unitPrice, subtotal & profit
+      const newSubtotal = newQuantity * unitPriceToUse;
+      const newProfit = newQuantity * (unitPriceToUse - existingItem.costPrice);
 
       const item = await tx.saleItem.update({
         where: { id: saleItemId },
         data: {
+          unitPrice: unitPriceToUse,
           quantity: newQuantity,
           subtotal: newSubtotal,
           profit: newProfit,

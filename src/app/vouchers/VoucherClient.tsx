@@ -273,6 +273,7 @@ export default function VoucherClient({
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [selectedCorrectionItem, setSelectedCorrectionItem] = useState<TodaySaleItem | null>(null);
   const [correctedQty, setCorrectedQty] = useState<number>(0);
+  const [correctedPrice, setCorrectedPrice] = useState<number>(0);
 
   // Cancellation / Deletion Modal for recorded sales
   const [saleItemToDelete, setSaleItemToDelete] = useState<TodaySaleItem | null>(null);
@@ -397,6 +398,7 @@ export default function VoucherClient({
   const openCorrectionModal = (item: TodaySaleItem) => {
     setSelectedCorrectionItem(item);
     setCorrectedQty(item.quantity);
+    setCorrectedPrice(item.unitPrice || 0);
     setIsCorrectionModalOpen(true);
     setErrorMessage(null);
   };
@@ -415,6 +417,7 @@ export default function VoucherClient({
         body: JSON.stringify({
           saleItemId: selectedCorrectionItem.id,
           newQuantity: Number(correctedQty),
+          newUnitPrice: Number(correctedPrice),
         }),
       });
 
@@ -2016,7 +2019,7 @@ export default function VoucherClient({
               <div>
                 <h3 className="font-bold text-slate-900 text-base">Koreksi Rekap Penjualan</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Ubah kuantitas terjual untuk transaksi ini
+                  Ubah kuantitas dan harga satuan untuk transaksi ini
                 </p>
               </div>
               <button
@@ -2038,33 +2041,62 @@ export default function VoucherClient({
                 <p className="font-bold text-slate-900 text-sm">
                   {selectedCorrectionItem.itemName}
                 </p>
-                <p className="text-xs text-slate-500">
-                  Harga Satuan: {formatRupiah(selectedCorrectionItem.unitPrice)}
-                </p>
-                <p className="text-xs text-slate-500">
-                  Kuantitas Terjual Saat Ini:{" "}
-                  <span className="font-bold text-slate-800">{selectedCorrectionItem.quantity} pcs</span>
-                </p>
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Harga Satuan Tercatat:</span>
+                  <span className="font-semibold text-slate-700">
+                    {formatRupiah(selectedCorrectionItem.unitPrice)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Kuantitas Terjual Saat Ini:</span>
+                  <span className="font-bold text-slate-800">
+                    {selectedCorrectionItem.quantity} pcs
+                  </span>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Kuantitas Terjual yang Benar (Pcs)
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={0}
-                  value={correctedQty}
-                  onChange={(e) => setCorrectedQty(Number(e.target.value))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-extrabold text-slate-800 focus:ring-2 focus:ring-indigo-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Harga Satuan (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    step="any"
+                    value={correctedPrice === 0 ? "" : correctedPrice}
+                    onChange={(e) =>
+                      setCorrectedPrice(e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)
+                    }
+                    placeholder="Contoh: 15000"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-extrabold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Kuantitas Terjual (Pcs)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    step="any"
+                    value={correctedQty}
+                    onChange={(e) =>
+                      setCorrectedQty(e.target.value === "" ? 0 : parseInt(e.target.value, 10) || 0)
+                    }
+                    placeholder="Contoh: 3"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-extrabold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
               </div>
 
               <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100/80 flex items-center justify-between text-xs">
                 <span className="text-slate-600 font-medium">Subtotal Baru:</span>
                 <span className="font-extrabold text-indigo-700 text-sm">
-                  {formatRupiah(correctedQty * selectedCorrectionItem.unitPrice)}
+                  {formatRupiah((correctedQty || 0) * (correctedPrice || 0))}
                 </span>
               </div>
 
