@@ -92,7 +92,7 @@ export default function Sidebar({ user, isOpen, onClose }: SidebarProps) {
       title: "Pengeluaran",
       href: "/expenses",
       icon: Receipt,
-      roles: ["OWNER"],
+      roles: ["OWNER", "CASHIER"],
     },
     {
       title: "Laporan & Laba Rugi",

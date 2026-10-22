@@ -12,7 +12,7 @@ export default async function ExpensesPage() {
     redirect("/login");
   }
 
-  if (session.role !== "OWNER") {
+  if (session.role !== "OWNER" && session.role !== "CASHIER") {
     redirect("/dashboard");
   }
 

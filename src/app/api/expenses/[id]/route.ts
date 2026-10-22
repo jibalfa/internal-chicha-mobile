@@ -24,7 +24,7 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
     return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 
@@ -60,7 +60,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
     return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 

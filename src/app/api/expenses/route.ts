@@ -21,7 +21,7 @@ const createExpenseSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
     return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 
@@ -59,8 +59,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== "OWNER") {
-    return NextResponse.json({ error: "Akses ditolak. Khusus Owner." }, { status: 403 });
+  if (!session || (session.role !== "OWNER" && session.role !== "CASHIER")) {
+    return NextResponse.json({ error: "Akses ditolak" }, { status: 403 });
   }
 
   try {

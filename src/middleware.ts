@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
 
     // Role-based restrictions
     // Owner-only paths
-    const ownerOnlyPaths = ["/users", "/reports", "/analytics", "/expenses", "/settings"];
+    const ownerOnlyPaths = ["/users", "/reports", "/analytics", "/settings"];
     if (ownerOnlyPaths.some((p) => pathname.startsWith(p)) && role !== "OWNER") {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
