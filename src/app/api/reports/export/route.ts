@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { sortVouchers } from "@/lib/voucher-sort";
+import { getWIBPeriodRange } from "@/lib/wibTime";
 
 // Professional Palette for Corporate / Executive Excel Reports
 const C = {
@@ -44,6 +45,10 @@ const C = {
   stockPrimary: "FF075985",
   stockHeader: "FF0284C7",
   stockLight: "FFE0F2FE",
+
+  servicePrimary: "FF0F766E",
+  serviceHeader: "FF0D9488",
+  serviceLight: "FFCCFBF1",
 
   // Status Badges
   greenBg: "FFDCFCE7",
@@ -239,59 +244,50 @@ function renderTotalRow(
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session || session.role !== "OWNER") {
+    return NextResponse.json({ error: "Akses ditolak. Khusus Owner." }, { status: 403 });
   }
 
-  const isOwner = session.role === "OWNER";
+  const isOwner = true;
 
   try {
+    const now = new Date();
     const { searchParams } = new URL(request.url);
+    const presetParam = searchParams.get("preset") as any;
     const startDateParam = searchParams.get("startDate");
     const endDateParam = searchParams.get("endDate");
 
-    const now = new Date();
-    // Default to this month
-    const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    const defaultEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
-    let startDate = defaultStart;
-    let endDate = defaultEnd;
-
-    if (startDateParam) {
-      const parts = startDateParam.split("-");
-      if (parts.length === 3) {
-        startDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0, 0);
-      } else {
-        startDate = new Date(startDateParam);
-      }
+    let range;
+    if (presetParam && ["TODAY", "7DAYS", "THIS_MONTH", "LAST_MONTH"].includes(presetParam)) {
+      range = getWIBPeriodRange(presetParam);
+    } else if (startDateParam && endDateParam) {
+      range = getWIBPeriodRange("CUSTOM", startDateParam, endDateParam);
+    } else {
+      range = getWIBPeriodRange("THIS_MONTH");
     }
 
-    if (endDateParam) {
-      const parts = endDateParam.split("-");
-      if (parts.length === 3) {
-        endDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 23, 59, 59, 999);
-      } else {
-        endDate = new Date(endDateParam);
-      }
-    }
-
+    const { startDate, endDate, periodLabel } = range;
     const dateFilter = {
       gte: startDate,
       lte: endDate,
     };
 
-    const periodStr = `${startDate.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })} s/d ${endDate.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}`;
-    const printTimeStr = now.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) + " " + now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) + " WIB";
+    const periodStr = periodLabel;
+    const printTimeStr =
+      new Intl.DateTimeFormat("id-ID", {
+        timeZone: "Asia/Jakarta",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date()) + " WIB";
 
     // 1. Fetch Sales (POS Retail & Vouchers)
     const sales = await prisma.sale.findMany({
       where: {
         OR: [
-          {
-            paymentMethod: { not: "CREDIT" },
-            createdAt: dateFilter,
-          },
+          { createdAt: dateFilter },
           {
             paymentMethod: "CREDIT",
             paymentStatus: "PAID",
@@ -363,6 +359,14 @@ export async function GET(request: NextRequest) {
     let voucherProfit = 0;
     let voucherSoldPcs = 0;
 
+    // Metrik Kas Fisik di Laci Periode Ini (WIB)
+    let cashPos = 0;
+    let cashVoucher = 0;
+    let cashSettledDebt = 0;
+    let nonCashPos = 0;
+    let nonCashVoucher = 0;
+    let nonCashSettledDebt = 0;
+
     const retailItemsRows: any[] = [];
     const voucherItemsRows: any[] = [];
 
@@ -370,66 +374,91 @@ export async function GET(request: NextRequest) {
     let voucherIdx = 1;
 
     for (const sale of sales) {
+      const isCreatedInPeriod = sale.createdAt >= startDate && sale.createdAt <= endDate;
+      const isSettledInPeriod = sale.paidAt && sale.paidAt >= startDate && sale.paidAt <= endDate;
+
       const saleDateStr =
-        new Date(sale.createdAt).toLocaleDateString("id-ID", {
+        new Intl.DateTimeFormat("id-ID", {
+          timeZone: "Asia/Jakarta",
           day: "2-digit",
           month: "2-digit",
           year: "numeric",
-        }) +
-        " " +
-        new Date(sale.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(sale.createdAt)) + " WIB";
 
       const cashierName = sale.cashier?.name || "Kasir";
       const customerName = sale.customerName || sale.customer?.name || "-";
       const isPOS = !sale.invoiceNumber.startsWith("VCH-");
 
-      for (const item of sale.items) {
-        if (item.itemType === "PRODUCT") {
-          posRevenue += item.subtotal;
-          posCost += item.costPrice * item.quantity;
-          posProfit += item.profit;
-          posProductItemsCount += item.quantity;
+      if (isCreatedInPeriod) {
+        for (const item of sale.items) {
+          if (item.itemType === "PRODUCT") {
+            posRevenue += item.subtotal;
+            posCost += item.costPrice * item.quantity;
+            posProfit += item.profit;
+            posProductItemsCount += item.quantity;
 
-          retailItemsRows.push([
-            retailIdx++,
-            saleDateStr,
-            sale.invoiceNumber,
-            cashierName,
-            customerName,
-            item.itemName,
-            item.product?.category?.name || "Aksesoris",
-            item.quantity,
-            isOwner ? item.costPrice : 0,
-            item.unitPrice,
-            item.subtotal,
-            isOwner ? item.profit : 0,
-            sale.paymentMethod === "CREDIT" ? "KREDIT" : sale.paymentMethod,
-            sale.paymentStatus === "PAID" ? "Lunas" : "Belum Lunas",
-            sale.notes || "-",
-          ]);
-        } else if (item.itemType === "VOUCHER") {
-          voucherRevenue += item.subtotal;
-          voucherCost += item.costPrice * item.quantity;
-          voucherProfit += item.profit;
-          voucherSoldPcs += item.quantity;
+            retailItemsRows.push([
+              retailIdx++,
+              saleDateStr,
+              sale.invoiceNumber,
+              cashierName,
+              customerName,
+              item.itemName,
+              item.product?.category?.name || "Aksesoris",
+              item.quantity,
+              isOwner ? item.costPrice : 0,
+              item.unitPrice,
+              item.subtotal,
+              isOwner ? item.profit : 0,
+              sale.paymentMethod === "CREDIT" ? "KREDIT" : sale.paymentMethod,
+              sale.paymentStatus === "PAID" ? "Lunas" : "Belum Lunas",
+              sale.notes || "-",
+            ]);
+          } else if (item.itemType === "VOUCHER") {
+            voucherRevenue += item.subtotal;
+            voucherCost += item.costPrice * item.quantity;
+            voucherProfit += item.profit;
+            voucherSoldPcs += item.quantity;
 
-          voucherItemsRows.push([
-            voucherIdx++,
-            saleDateStr,
-            sale.invoiceNumber,
-            isPOS ? "Kasir POS" : "Pencatatan Sisa Stok",
-            cashierName,
-            item.voucher?.operator || "Lainnya",
-            item.voucher?.nominal || "-",
-            item.itemName,
-            item.quantity,
-            isOwner ? item.costPrice : 0,
-            item.unitPrice,
-            item.subtotal,
-            isOwner ? item.profit : 0,
-            sale.paymentMethod === "CREDIT" ? "KREDIT" : sale.paymentMethod,
-            sale.paymentStatus === "PAID" ? "Lunas" : "Belum Lunas",
-          ]);
+            voucherItemsRows.push([
+              voucherIdx++,
+              saleDateStr,
+              sale.invoiceNumber,
+              isPOS ? "Kasir POS" : "Pencatatan Sisa Stok",
+              cashierName,
+              item.voucher?.operator || "Lainnya",
+              item.voucher?.nominal || "-",
+              item.itemName,
+              item.quantity,
+              isOwner ? item.costPrice : 0,
+              item.unitPrice,
+              item.subtotal,
+              isOwner ? item.profit : 0,
+              sale.paymentMethod === "CREDIT" ? "KREDIT" : sale.paymentMethod,
+              sale.paymentStatus === "PAID" ? "Lunas" : "Belum Lunas",
+            ]);
+          }
+        }
+      }
+
+      // Hitung Arus Kas Fisik & Non-Tunai
+      if (sale.paymentMethod === "CASH" && isCreatedInPeriod) {
+        for (const item of sale.items) {
+          if (item.itemType === "PRODUCT") cashPos += item.subtotal;
+          else if (item.itemType === "VOUCHER") cashVoucher += item.subtotal;
+        }
+      } else if (sale.paymentMethod === "CREDIT" && isSettledInPeriod) {
+        if (sale.paidMethod === "CASH") {
+          cashSettledDebt += sale.finalAmount;
+        } else {
+          nonCashSettledDebt += sale.finalAmount;
+        }
+      } else if (isCreatedInPeriod && (sale.paymentMethod === "QRIS" || sale.paymentMethod === "TRANSFER")) {
+        for (const item of sale.items) {
+          if (item.itemType === "PRODUCT") nonCashPos += item.subtotal;
+          else if (item.itemType === "VOUCHER") nonCashVoucher += item.subtotal;
         }
       }
     }
@@ -439,11 +468,81 @@ export async function GET(request: NextRequest) {
     const digitalCost = digitalSuccess.reduce((sum, t) => sum + t.costPrice, 0);
     const digitalProfit = digitalSuccess.reduce((sum, t) => sum + t.profit, 0);
 
+    // 6. Fetch Service Records (Jasa Servis & Teknisi HP)
+    // Hanya servis yang SUDAH SELESAI / DIAMBIL (status: COMPLETED) dan LUNAS (paymentStatus: PAID)
+    // Servis yang belum diambil (PENDING / IN_PROGRESS / UNPAID) belum masuk ke buku servis.
+    const services = await (prisma as any).serviceRecord.findMany({
+      where: {
+        status: "COMPLETED",
+        paymentStatus: "PAID",
+        OR: [
+          { completedAt: dateFilter },
+          { completedAt: null, createdAt: dateFilter },
+        ],
+      },
+      include: {
+        technician: true,
+        cashier: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    let serviceRevenue = 0;
+    let serviceSparepartCost = 0;
+    let serviceTechnicianFee = 0;
+    let serviceStoreProfit = 0;
+    let cashService = 0;
+    let nonCashService = 0;
+
+    const serviceItemsRows: any[] = [];
+    let serviceIdx = 1;
+
+    for (const s of services) {
+      serviceRevenue += s.serviceFee || 0;
+      serviceSparepartCost += s.sparepartCost || 0;
+      serviceTechnicianFee += s.technicianFee || 0;
+      serviceStoreProfit += s.storeProfit || 0;
+
+      if (s.paymentMethod === "CASH") {
+        cashService += s.serviceFee || 0;
+      } else {
+        nonCashService += s.serviceFee || 0;
+      }
+
+      const sDateStr =
+        new Date(s.createdAt).toLocaleDateString("id-ID", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }) +
+        " " +
+        new Date(s.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+      serviceItemsRows.push([
+        serviceIdx++,
+        sDateStr,
+        s.serviceNumber,
+        s.deviceType,
+        s.issue,
+        s.technician?.name || "Teknisi",
+        s.serviceFee,
+        isOwner ? s.sparepartCost : 0,
+        (s.technicianPercentage || 50) / 100,
+        isOwner ? s.technicianFee : 0,
+        isOwner ? s.storeProfit : 0,
+        s.paymentMethod,
+        s.status === "COMPLETED" ? "SELESAI" : s.status,
+        s.cashier?.name || "Kasir",
+      ]);
+    }
+
+    const serviceCost = serviceSparepartCost + serviceTechnicianFee;
+
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
-    const totalGrossRevenue = posRevenue + voucherRevenue + digitalRevenue;
-    const totalCOGS = posCost + voucherCost + digitalCost;
-    const totalGrossProfit = posProfit + voucherProfit + digitalProfit;
+    const totalGrossRevenue = posRevenue + voucherRevenue + digitalRevenue + serviceRevenue;
+    const totalCOGS = posCost + voucherCost + digitalCost + serviceCost;
+    const totalGrossProfit = posProfit + voucherProfit + digitalProfit + serviceStoreProfit;
     const netProfit = totalGrossProfit - totalExpenses;
 
     // Expense category breakdown
@@ -534,6 +633,15 @@ export async function GET(request: NextRequest) {
         isOwner ? digitalProfit : 0,
         digitalRevenue > 0 ? digitalProfit / digitalRevenue : 0,
       ],
+      [
+        4,
+        "Jasa Servis & Perbaikan HP",
+        `${services.length} unit`,
+        serviceRevenue,
+        isOwner ? serviceCost : 0,
+        isOwner ? serviceStoreProfit : 0,
+        serviceRevenue > 0 ? serviceStoreProfit / serviceRevenue : 0,
+      ],
     ];
 
     s1Rows.forEach((rData, idx) => {
@@ -546,11 +654,11 @@ export async function GET(request: NextRequest) {
     });
 
     renderTotalRow(
-      wsPnl.getRow(9),
+      wsPnl.getRow(10),
       [
         "",
         "TOTAL PENDAPATAN & LABA KOTOR",
-        `${posProductItemsCount + voucherSoldPcs} pcs / ${digitalSuccess.length} trx`,
+        `${posProductItemsCount + voucherSoldPcs} pcs / ${digitalSuccess.length} trx / ${services.length} unit`,
         totalGrossRevenue,
         isOwner ? totalCOGS : 0,
         isOwner ? totalGrossProfit : 0,
@@ -560,28 +668,28 @@ export async function GET(request: NextRequest) {
       C.softBlue
     );
 
-    wsPnl.getRow(10).height = 12;
+    wsPnl.getRow(11).height = 12;
 
     // Section 2: Beban Operasional
-    wsPnl.mergeCells(11, 1, 11, 7);
-    const s2 = wsPnl.getCell(11, 1);
+    wsPnl.mergeCells(12, 1, 12, 7);
+    const s2 = wsPnl.getCell(12, 1);
     s2.value = "2. RINCIAN BEBAN & BIAYA OPERASIONAL (OPEX)";
     s2.font = { name: "Calibri", size: 11, bold: true, color: { argb: C.white } };
     s2.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.expenseHeader } };
     s2.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
-    wsPnl.getRow(11).height = 24;
+    wsPnl.getRow(12).height = 24;
 
-    const row12 = wsPnl.getRow(12);
-    row12.height = 26;
-    wsPnl.getCell(12, 1).value = "No";
-    wsPnl.getCell(12, 2).value = "Kategori Beban";
-    wsPnl.mergeCells(12, 3, 12, 5);
-    wsPnl.getCell(12, 3).value = "Keterangan / Rincian Operasional";
-    wsPnl.mergeCells(12, 6, 12, 7);
-    wsPnl.getCell(12, 6).value = "Total Pengeluaran (Rp)";
+    const row13 = wsPnl.getRow(13);
+    row13.height = 26;
+    wsPnl.getCell(13, 1).value = "No";
+    wsPnl.getCell(13, 2).value = "Kategori Beban";
+    wsPnl.mergeCells(13, 3, 13, 5);
+    wsPnl.getCell(13, 3).value = "Keterangan / Rincian Operasional";
+    wsPnl.mergeCells(13, 6, 13, 7);
+    wsPnl.getCell(13, 6).value = "Total Pengeluaran (Rp)";
 
     for (let c = 1; c <= 7; c++) {
-      const cell = wsPnl.getCell(12, c);
+      const cell = wsPnl.getCell(13, c);
       cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.white } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.slateHeader } };
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
@@ -604,7 +712,7 @@ export async function GET(request: NextRequest) {
     ];
 
     expenseItems.forEach((item, idx) => {
-      const r = 13 + idx;
+      const r = 14 + idx;
       const row = wsPnl.getRow(r);
       row.height = 22;
       const bg = idx % 2 === 1 ? C.zebraBg : C.white;
@@ -638,22 +746,22 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    const r20 = 20;
-    const row20 = wsPnl.getRow(r20);
-    row20.height = 25;
-    wsPnl.mergeCells(r20, 3, r20, 5);
-    wsPnl.mergeCells(r20, 6, r20, 7);
+    const r21 = 21;
+    const row21 = wsPnl.getRow(r21);
+    row21.height = 25;
+    wsPnl.mergeCells(r21, 3, r21, 5);
+    wsPnl.mergeCells(r21, 6, r21, 7);
 
-    wsPnl.getCell(r20, 1).value = null;
-    wsPnl.getCell(r20, 2).value = "TOTAL BEBAN OPERASIONAL";
-    wsPnl.getCell(r20, 2).alignment = { horizontal: "left", vertical: "middle" };
-    wsPnl.getCell(r20, 3).value = null;
-    wsPnl.getCell(r20, 6).value = totalExpenses;
-    wsPnl.getCell(r20, 6).alignment = { horizontal: "right", vertical: "middle" };
-    wsPnl.getCell(r20, 6).numFmt = NUM_FMT_RP;
+    wsPnl.getCell(r21, 1).value = null;
+    wsPnl.getCell(r21, 2).value = "TOTAL BEBAN OPERASIONAL";
+    wsPnl.getCell(r21, 2).alignment = { horizontal: "left", vertical: "middle" };
+    wsPnl.getCell(r21, 3).value = null;
+    wsPnl.getCell(r21, 6).value = totalExpenses;
+    wsPnl.getCell(r21, 6).alignment = { horizontal: "right", vertical: "middle" };
+    wsPnl.getCell(r21, 6).numFmt = NUM_FMT_RP;
 
     for (let c = 1; c <= 7; c++) {
-      const cell = wsPnl.getCell(r20, c);
+      const cell = wsPnl.getCell(r21, c);
       cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.darkSlate } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.expenseLight } };
       cell.border = {
@@ -664,28 +772,28 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    wsPnl.getRow(21).height = 12;
+    wsPnl.getRow(22).height = 12;
 
     // Section 3: Hasil Akhir Keuangan Bersih (Net Income)
-    wsPnl.mergeCells(22, 1, 22, 7);
-    const s3 = wsPnl.getCell(22, 1);
+    wsPnl.mergeCells(23, 1, 23, 7);
+    const s3 = wsPnl.getCell(23, 1);
     s3.value = "3. HASIL AKHIR KEUANGAN BERSIH (NET INCOME)";
     s3.font = { name: "Calibri", size: 11, bold: true, color: { argb: C.white } };
     s3.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.digitalHeader } };
     s3.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
-    wsPnl.getRow(22).height = 24;
+    wsPnl.getRow(23).height = 24;
 
-    const row23 = wsPnl.getRow(23);
-    row23.height = 26;
-    wsPnl.getCell(23, 1).value = "No";
-    wsPnl.getCell(23, 2).value = "Indikator Keuangan";
-    wsPnl.mergeCells(23, 3, 23, 4);
-    wsPnl.getCell(23, 3).value = "Nilai (Rp / %)";
-    wsPnl.mergeCells(23, 5, 23, 7);
-    wsPnl.getCell(23, 5).value = "Keterangan & Analisis";
+    const row24 = wsPnl.getRow(24);
+    row24.height = 26;
+    wsPnl.getCell(24, 1).value = "No";
+    wsPnl.getCell(24, 2).value = "Indikator Keuangan";
+    wsPnl.mergeCells(24, 3, 24, 4);
+    wsPnl.getCell(24, 3).value = "Nilai (Rp / %)";
+    wsPnl.mergeCells(24, 5, 24, 7);
+    wsPnl.getCell(24, 5).value = "Keterangan & Analisis";
 
     for (let c = 1; c <= 7; c++) {
-      const cell = wsPnl.getCell(23, c);
+      const cell = wsPnl.getCell(24, c);
       cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.white } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.slateHeader } };
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
@@ -702,7 +810,7 @@ export async function GET(request: NextRequest) {
         no: 1,
         label: "Total Omset Penjualan Kotor",
         val: totalGrossRevenue,
-        desc: "Total uang masuk dari seluruh lini usaha (Retail, Voucher, PPOB)",
+        desc: "Total uang masuk dari seluruh lini usaha (Retail, Voucher, PPOB, Servis HP)",
         type: "rp",
         highlight: "softGreen",
       },
@@ -710,7 +818,7 @@ export async function GET(request: NextRequest) {
         no: 2,
         label: "Total Harga Pokok Penjualan (HPP)",
         val: isOwner ? totalCOGS : "Terkunci (RBAC)",
-        desc: "Biaya modal barang & voucher fisik yang terjual",
+        desc: "Biaya modal barang, voucher fisik, & jasa/komisi servis",
         type: isOwner ? "rp" : "locked",
         highlight: "neutral",
       },
@@ -761,7 +869,7 @@ export async function GET(request: NextRequest) {
     ];
 
     pnlSummaryItems.forEach((item, idx) => {
-      const r = 24 + idx;
+      const r = 25 + idx;
       const row = wsPnl.getRow(r);
       const isNetProfitRow = item.highlight === "netProfit";
       row.height = isNetProfitRow ? 28 : 22;
@@ -846,9 +954,121 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // Section 4: Rekonsiliasi Uang Kas Fisik di Laci Kasir (WIB)
+    const cashExpense = totalExpenses;
+    const totalCashIn = cashPos + cashVoucher + cashService + cashSettledDebt;
+    const netDrawerCash = Math.max(0, totalCashIn - cashExpense);
+    const nonCashTotal = nonCashPos + nonCashVoucher + digitalRevenue + nonCashService + nonCashSettledDebt;
+
+    wsPnl.getRow(32).height = 14;
+
+    const r33 = 33;
+    wsPnl.mergeCells(r33, 1, r33, 7);
+    const s4 = wsPnl.getCell(r33, 1);
+    s4.value = "4. REKONSILIASI UANG KAS FISIK DI LACI KASIR (CASH IN DRAWER - WIB)";
+    s4.font = { name: "Calibri", size: 11, bold: true, color: { argb: C.white } };
+    s4.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } };
+    s4.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    wsPnl.getRow(r33).height = 24;
+
+    const row34 = wsPnl.getRow(34);
+    row34.height = 26;
+    wsPnl.getCell(34, 1).value = "No";
+    wsPnl.getCell(34, 2).value = "Komponen Arus Kas Fisik & Non-Tunai";
+    wsPnl.mergeCells(34, 3, 34, 4);
+    wsPnl.getCell(34, 3).value = "Nominal (Rp)";
+    wsPnl.mergeCells(34, 5, 34, 7);
+    wsPnl.getCell(34, 5).value = "Rincian & Keterangan (Zona Waktu WIB)";
+
+    for (let c = 1; c <= 7; c++) {
+      const cell = wsPnl.getCell(34, c);
+      cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.white } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.slateHeader } };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.border = {
+        top: { style: "thin", color: { argb: C.borderHeader } },
+        bottom: { style: "thin", color: { argb: C.borderHeader } },
+        left: { style: "thin", color: { argb: C.borderHeader } },
+        right: { style: "thin", color: { argb: C.borderHeader } },
+      };
+    }
+
+    const cashReconItems = [
+      { no: 1, label: "Kas Masuk POS Aksesoris (Tunai / Cash)", val: cashPos, desc: "Penjualan retail dibayar tunai langsung di kasir", highlight: "neutral" },
+      { no: 2, label: "Kas Masuk Voucher Fisik (Tunai / Cash)", val: cashVoucher, desc: "Penjualan voucher fisik dibayar tunai langsung di kasir", highlight: "neutral" },
+      { no: 3, label: "Kas Masuk Jasa Servis HP (Tunai / Cash)", val: cashService, desc: "Jasa perbaikan handphone yang dibayar tunai oleh pelanggan", highlight: "neutral" },
+      { no: 4, label: "Kas Masuk Pelunasan Bon Piutang (Tunai / Cash)", val: cashSettledDebt, desc: "Pelunasan nota bon piutang tunai pada periode ini (sesuai tanggal pelunasan)", highlight: "softAmber" },
+      { no: 5, label: "TOTAL ARUS KAS FISIK MASUK (CASH IN)", val: totalCashIn, desc: "Total penerimaan uang tunai fisik ke laci kasir", highlight: "softGreen" },
+      { no: 6, label: "Pengeluaran Beban Operasional Kas (CASH OUT)", val: cashExpense, desc: "Biaya operasional toko yang dibayar menggunakan uang kas", highlight: "softAmber" },
+      { no: 7, label: "SISA UANG KAS FISIK DI LACI KASIR (NET DRAWER CASH)", val: netDrawerCash, desc: "Uang tunai fisik aktual yang WAJIB ada di laci saat closing kasir", highlight: "netDrawer" },
+      { no: 8, label: "TOTAL UANG NON-TUNAI MASUK REKENING BANK / QRIS", val: nonCashTotal, desc: "Tercatat di mutasi bank/e-wallet, BUKAN uang fisik di laci", highlight: "softBlue" },
+    ];
+
+    cashReconItems.forEach((item, idx) => {
+      const r = 35 + idx;
+      const row = wsPnl.getRow(r);
+      const isDrawerRow = item.highlight === "netDrawer";
+      row.height = isDrawerRow ? 28 : 22;
+
+      wsPnl.mergeCells(r, 3, r, 4);
+      wsPnl.mergeCells(r, 5, r, 7);
+
+      wsPnl.getCell(r, 1).value = item.no;
+      wsPnl.getCell(r, 1).alignment = { horizontal: "center", vertical: "middle" };
+
+      wsPnl.getCell(r, 2).value = item.label;
+      wsPnl.getCell(r, 2).alignment = { horizontal: "left", vertical: "middle" };
+
+      wsPnl.getCell(r, 3).value = item.val;
+      wsPnl.getCell(r, 3).alignment = { horizontal: "right", vertical: "middle" };
+      wsPnl.getCell(r, 3).numFmt = NUM_FMT_RP;
+
+      wsPnl.getCell(r, 5).value = item.desc;
+      wsPnl.getCell(r, 5).alignment = { horizontal: "left", vertical: "middle" };
+
+      let rowBg = idx % 2 === 1 ? C.zebraBg : C.white;
+      let fontColor = C.darkSlate;
+      let isBold = false;
+      let borderColor = C.borderLight;
+      let bottomBorderStyle: ExcelJS.BorderStyle = "thin";
+
+      if (item.highlight === "softGreen") {
+        rowBg = "FFF0FDF4";
+        isBold = true;
+      } else if (item.highlight === "softBlue") {
+        rowBg = "FFEFF6FF";
+        isBold = true;
+      } else if (item.highlight === "softAmber") {
+        rowBg = "FFFFFBEB";
+        isBold = true;
+      } else if (isDrawerRow) {
+        rowBg = "FFCCFBF1";
+        fontColor = "FF0F766E";
+        isBold = true;
+        borderColor = "FF0D9488";
+        bottomBorderStyle = "double";
+      }
+
+      for (let c = 1; c <= 7; c++) {
+        const cell = wsPnl.getCell(r, c);
+        cell.font = { name: "Calibri", size: isDrawerRow ? 11 : 10, bold: isBold, color: { argb: fontColor } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowBg } };
+        cell.border = {
+          top: { style: "thin", color: { argb: borderColor } },
+          bottom: { style: bottomBorderStyle, color: { argb: borderColor } },
+          left: { style: "thin", color: { argb: borderColor } },
+          right: { style: "thin", color: { argb: borderColor } },
+        };
+      }
+
+      if (isDrawerRow) {
+        wsPnl.getCell(r, 3).font = { name: "Calibri", size: 12, bold: true, color: { argb: fontColor } };
+      }
+    });
+
     wsPnl.columns = [
       { width: 6 },
-      { width: 40 },
+      { width: 44 },
       { width: 20 },
       { width: 22 },
       { width: 24 },
@@ -1463,6 +1683,100 @@ export async function GET(request: NextRequest) {
       { width: 18 },
       { width: 18 },
       { width: 24 },
+    ];
+
+    // ==========================================
+    // SHEET 8: DETAIL SERVIS & TEKNISI HP
+    // ==========================================
+    const wsService = wb.addWorksheet("Detail Servis HP", {
+      views: [{ showGridLines: true }],
+    });
+
+    addSheetHeader(
+      wsService,
+      "CHICHA MOBILE - DETAIL TRANSAKSI SERVIS & TEKNISI HP",
+      `Periode: ${periodStr} | Total Servis: ${services.length} unit`,
+      16,
+      C.servicePrimary
+    );
+
+    const serviceHeaders = [
+      "No",
+      "Waktu Servis",
+      "No. Servis",
+      "Tipe HP / Model",
+      "Kendala / Kerusakan",
+      "Teknisi",
+      "Biaya Jasa (Rp)",
+      "Modal Sparepart (Rp)",
+      "Persenan Teknisi (%)",
+      "Hak Teknisi (Rp)",
+      "Laba Bersih Toko (Rp)",
+      "Metode Bayar",
+      "Status Servis",
+      "Kasir",
+    ];
+    addTableHeader(wsService, 4, serviceHeaders, C.serviceHeader);
+
+    const serviceColFormats: ColFormat[] = [
+      "center",
+      "center",
+      "center",
+      "left",
+      "left",
+      "left",
+      "rp",
+      "rp",
+      "pct",
+      "rp",
+      "rp",
+      "center",
+      "status",
+      "left",
+    ];
+
+    serviceItemsRows.forEach((rowVals, idx) => {
+      renderDataRow(wsService.getRow(5 + idx), rowVals, serviceColFormats, idx % 2 === 1);
+    });
+
+    const serviceTotalRowNum = 5 + serviceItemsRows.length;
+    renderTotalRow(
+      wsService.getRow(serviceTotalRowNum),
+      [
+        "",
+        "TOTAL JASA SERVIS HP",
+        "",
+        "",
+        "",
+        `${services.length} unit`,
+        serviceRevenue,
+        isOwner ? serviceSparepartCost : 0,
+        "",
+        isOwner ? serviceTechnicianFee : 0,
+        isOwner ? serviceStoreProfit : 0,
+        "",
+        "",
+        "",
+      ],
+      serviceColFormats,
+      C.serviceLight
+    );
+
+    wsService.columns = [
+      { width: 6 },
+      { width: 18 },
+      { width: 22 },
+      { width: 22 },
+      { width: 32 },
+      { width: 20 },
+      { width: 20 },
+      { width: 20 },
+      { width: 18 },
+      { width: 20 },
+      { width: 20 },
+      { width: 15 },
+      { width: 16 },
+      { width: 16 },
     ];
 
     // Generate binary buffer

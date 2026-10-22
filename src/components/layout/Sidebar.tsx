@@ -18,6 +18,8 @@ import {
   Settings2,
   X,
   Smartphone,
+  Wrench,
+  UserCheck,
 } from "lucide-react";
 import { AuthSession } from "@/types";
 
@@ -49,6 +51,18 @@ export default function Sidebar({ user, isOpen, onClose }: SidebarProps) {
       href: "/transactions",
       icon: History,
       roles: ["OWNER", "CASHIER"],
+    },
+    {
+      title: "Servis HP",
+      href: "/services",
+      icon: Wrench,
+      roles: ["OWNER", "CASHIER"],
+    },
+    {
+      title: "Data Teknisi",
+      href: "/technicians",
+      icon: UserCheck,
+      roles: ["OWNER"],
     },
     {
       title: "Voucher HP",

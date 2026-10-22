@@ -23,6 +23,7 @@ model User {
   inventoryMovements  InventoryMovement[]
   expenses            Expense[]
   voucherDebts        VoucherDebt[]
+  serviceRecords      ServiceRecord[]
 
   @@map("users")
 }
@@ -296,3 +297,47 @@ model StoreSetting {
 
   @@map("store_settings")
 }
+
+model Technician {
+  id                String          @id @default(cuid())
+  name              String
+  phone             String?
+  address           String?
+  defaultPercentage Float           @default(50) // Persenan default teknisi (misal: 50%)
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  services          ServiceRecord[]
+
+  @@map("technicians")
+}
+
+model ServiceRecord {
+  id                   String      @id @default(cuid())
+  serviceNumber        String      @unique
+  deviceType           String      // Tipe HP (misal: iPhone 11, Samsung A52)
+  issue                String      // Kendala / Kerusakan (misal: Ganti LCD, Mati Total)
+  serviceFee           Float       @default(0) // Biaya Jasa Servis
+  sparepartCost        Float       @default(0) // Modal Sparepart jika ada
+  technicianPercentage Float       @default(50) // Persenan teknisi (%)
+  technicianFee        Float       @default(0) // Komisi hak teknisi
+  storeProfit          Float       @default(0) // Laba bersih hak toko
+  technicianId         String
+  customerName         String?
+  customerPhone        String?
+  status               String      @default("COMPLETED") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  paymentStatus        String      @default("PAID") // PAID, UNPAID
+  paymentMethod        String      @default("CASH") // CASH, TRANSFER, QRIS
+  notes                String?
+  cashierId            String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  completedAt          DateTime?
+
+  technician           Technician  @relation(fields: [technicianId], references: [id])
+  cashier              User?       @relation(fields: [cashierId], references: [id])
+
+  @@map("service_records")
+}
+

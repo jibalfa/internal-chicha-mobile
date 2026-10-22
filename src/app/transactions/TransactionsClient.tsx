@@ -368,7 +368,7 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
 
   const handleSettleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSettleTrx) return;
+    if (!selectedSettleTrx || settleLoading) return;
 
     setSettleLoading(true);
     try {

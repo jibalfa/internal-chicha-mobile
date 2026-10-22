@@ -19,6 +19,9 @@ import {
   BarChart3,
   Sparkles,
   Layers,
+  Banknote,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
 import { AuthSession } from "@/types";
@@ -30,6 +33,7 @@ interface DashboardClientProps {
 export default function DashboardClient({ currentUser }: DashboardClientProps) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCashBreakdown, setShowCashBreakdown] = useState(false);
   const isOwner = currentUser?.role === "OWNER";
 
   const fetchStats = async () => {
@@ -120,6 +124,261 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* ========================================================================= */}
+          {/* UANG KAS FISIK DI LACI KASIR (ZONA WAKTU WIB)                             */}
+          {/* ========================================================================= */}
+          {data?.physicalCash && (
+            <div className="bg-gradient-to-br from-emerald-950 via-slate-900 to-indigo-950 rounded-3xl p-6 sm:p-7 text-white shadow-xl shadow-emerald-950/20 border border-emerald-500/30 relative overflow-hidden">
+              {/* Background ambient glow */}
+              <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[11px] font-bold tracking-wide uppercase">
+                        <Banknote className="w-3.5 h-3.5" />
+                        <span>Uang Kas Fisik di Laci</span>
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 text-[10px] font-semibold">
+                        {data.physicalCash.timezone || "WIB (UTC+7)"}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-slate-300 text-[10px] font-mono">
+                        {data.physicalCash.dateLabel || "Hari Ini"}
+                      </span>
+                    </div>
+                    <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
+                      <span>Saldo Uang Fisik di Laci Hari Ini</span>
+                    </h2>
+                    <p className="text-xs text-slate-300 max-w-2xl">
+                      Uang tunai fisik yang wajib ada di laci kasir saat ini: hasil penjualan tunai (POS, Voucher, Servis HP) dan Pelunasan Bon Piutang pada hari ini dikurangi pengeluaran operasional toko.
+                    </p>
+                  </div>
+
+                  <div className="flex sm:flex-col items-baseline sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-white/10">
+                    <span className="text-[11px] uppercase tracking-wider text-emerald-300 font-bold block">
+                      Total Kas Fisik di Laci:
+                    </span>
+                    <span className="text-2xl sm:text-4xl font-black text-emerald-400 tracking-tight font-mono">
+                      {formatRupiah(data.physicalCash.netDrawerCash)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Snapshot Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                    <span className="text-[10px] text-slate-400 block font-medium">🛒 POS Tunai</span>
+                    <span className="font-bold text-white font-mono text-sm">
+                      {formatRupiah(data.physicalCash.posCash)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                    <span className="text-[10px] text-slate-400 block font-medium">🎟️ Voucher Tunai</span>
+                    <span className="font-bold text-white font-mono text-sm">
+                      {formatRupiah(data.physicalCash.voucherCash)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                    <span className="text-[10px] text-slate-400 block font-medium">🔧 Servis HP Tunai</span>
+                    <span className="font-bold text-white font-mono text-sm">
+                      {formatRupiah(data.physicalCash.serviceCash)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-amber-500/30 backdrop-blur-sm">
+                    <span className="text-[10px] text-amber-300 block font-medium">📝 Pelunasan Bon</span>
+                    <span className="font-bold text-amber-300 font-mono text-sm">
+                      {formatRupiah(data.physicalCash.settledDebtCash)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-rose-500/20 backdrop-blur-sm">
+                    <span className="text-[10px] text-rose-300 block font-medium">🔻 Beban Keluar</span>
+                    <span className="font-bold text-rose-400 font-mono text-sm">
+                      -{formatRupiah(data.physicalCash.expenseCash)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-indigo-950/60 border border-indigo-400/30 backdrop-blur-sm">
+                    <span className="text-[10px] text-indigo-300 block font-medium">💳 Non-Tunai (Bank)</span>
+                    <span className="font-bold text-indigo-300 font-mono text-sm">
+                      {formatRupiah(data.physicalCash.nonCash?.total || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Toggle Breakdown Button */}
+                <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCashBreakdown(!showCashBreakdown)}
+                    className="inline-flex items-center gap-2 text-xs font-bold text-emerald-300 hover:text-emerald-200 transition-colors"
+                  >
+                    <span>{showCashBreakdown ? "Sembunyikan Rincian Kas Laci" : "Lihat Rincian Sumber Kas & Non-Tunai"}</span>
+                    {showCashBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+
+                  <span className="text-[10px] text-slate-400">
+                    Rekonsiliasi otomatis 00:00:00 s/d 23:59:59 WIB
+                  </span>
+                </div>
+
+                {/* Collapsible Detailed Breakdown */}
+                {showCashBreakdown && (
+                  <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      {/* Left: Kas Tunai Masuk Laci */}
+                      <div className="bg-slate-900/80 rounded-2xl p-4 border border-emerald-500/20 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <span className="font-bold text-emerald-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                            <Banknote className="w-4 h-4 text-emerald-400" />
+                            <span>Arus Kas Masuk Fisik (Cash In)</span>
+                          </span>
+                          <span className="font-mono font-bold text-emerald-400">
+                            +{formatRupiah(data.physicalCash.totalCashIn)}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5 text-slate-300">
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>1. Penjualan Aksesoris POS (Cash)</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.posCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>2. Penjualan Voucher Fisik (Cash)</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.voucherCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>3. Jasa Servis & Teknisi HP (Cash)</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.serviceCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>4. Pelunasan Bon Piutang (Cash pada Hari Lunas)</span>
+                            <span className="font-mono font-semibold text-amber-300">
+                              {formatRupiah(data.physicalCash.settledDebtCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-rose-300">
+                            <span>5. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span className="font-mono font-semibold text-rose-400">
+                              -{formatRupiah(data.physicalCash.expenseCash)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-emerald-500/30 flex justify-between items-center text-sm font-extrabold text-emerald-400 bg-emerald-500/10 p-2.5 rounded-xl">
+                          <span>SISA UANG FISIK DI LACI:</span>
+                          <span className="font-mono text-base">{formatRupiah(data.physicalCash.netDrawerCash)}</span>
+                        </div>
+                      </div>
+
+                      {/* Right: Non-Tunai (Rekening Bank / QRIS) */}
+                      <div className="bg-slate-900/80 rounded-2xl p-4 border border-indigo-500/20 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <span className="font-bold text-indigo-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-indigo-400" />
+                            <span>Uang Non-Tunai (Bank / QRIS / Saldo)</span>
+                          </span>
+                          <span className="font-mono font-bold text-indigo-300">
+                            {formatRupiah(data.physicalCash.nonCash?.total || 0)}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400">
+                          Uang berikut masuk langsung ke rekening bank / saldo aplikasi, TIDAK MASUK ke laci kasir fisik:
+                        </p>
+
+                        <div className="space-y-1.5 text-slate-300">
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>• POS QRIS / Transfer</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.nonCash?.pos || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>• Voucher QRIS / Transfer</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.nonCash?.voucher || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>• Servis HP Transfer / QRIS</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.nonCash?.service || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-white/5">
+                            <span>• Transaksi Digital / PPOB</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.nonCash?.digital || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1">
+                            <span>• Pelunasan Bon Non-Tunai</span>
+                            <span className="font-mono font-semibold text-white">
+                              {formatRupiah(data.physicalCash.nonCash?.settledDebt || 0)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-[11px] text-indigo-200">
+                          💡 Uang non-tunai sudah tercatat di mutasi bank/e-wallet Anda. Jangan hitung saat tutup laci fisik.
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Settled Debt Notes Details (If any today) */}
+                    {data.physicalCash.settledDebtList?.length > 0 && (
+                      <div className="bg-slate-900/90 rounded-2xl p-4 border border-amber-500/30 space-y-2">
+                        <span className="text-xs font-bold text-amber-300 uppercase tracking-wider block">
+                          📝 Rincian Nota Bon Piutang yang Dilunaskan Hari Ini (WIB)
+                        </span>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs text-slate-300">
+                            <thead>
+                              <tr className="border-b border-white/10 text-slate-400 text-[10px] uppercase">
+                                <th className="pb-2">No. Nota</th>
+                                <th className="pb-2">Pelanggan</th>
+                                <th className="pb-2 text-right">Nominal Lunas</th>
+                                <th className="pb-2 text-center">Metode</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5 font-mono">
+                              {data.physicalCash.settledDebtList.map((item: any) => (
+                                <tr key={item.id} className="hover:bg-white/5">
+                                  <td className="py-1.5 font-bold text-white">{item.invoiceNumber}</td>
+                                  <td className="py-1.5 font-sans text-slate-200">{item.customerName}</td>
+                                  <td className="py-1.5 text-right font-bold text-emerald-400">
+                                    {formatRupiah(item.finalAmount)}
+                                  </td>
+                                  <td className="py-1.5 text-center">
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/10 text-white">
+                                      {item.paidMethod}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ========================================================================= */}
           {/* OWNER EXCLUSIVE FINANCIAL KPI CARDS                                      */}
           {/* ========================================================================= */}

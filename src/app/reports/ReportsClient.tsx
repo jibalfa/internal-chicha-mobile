@@ -28,6 +28,7 @@ import {
   Banknote,
   QrCode,
   Clock,
+  Wrench,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
 
@@ -41,7 +42,7 @@ export default function ReportsClient() {
   const [loading, setLoading] = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "PNL" | "POS_RETAIL" | "VOUCHER" | "DIGITAL" | "EXPENSES" | "RECEIVABLES"
+    "PNL" | "POS_RETAIL" | "VOUCHER" | "DIGITAL" | "SERVICES" | "EXPENSES" | "RECEIVABLES"
   >("PNL");
 
   // Receivables (Laporan Piutang & Pelanggan) State
@@ -129,40 +130,11 @@ export default function ReportsClient() {
 
   const fetchReports = async (preset: string) => {
     setLoading(true);
-    let startDate = "";
-    let endDate = "";
-    const now = new Date();
-
-    if (preset === "TODAY") {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      startDate = todayStart.toISOString();
-      endDate = todayEnd.toISOString();
-    } else if (preset === "7DAYS") {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(now.getDate() - 7);
-      sevenDaysAgo.setHours(0, 0, 0, 0);
-      startDate = sevenDaysAgo.toISOString();
-      endDate = now.toISOString();
-    } else if (preset === "THIS_MONTH") {
-      const startMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      startDate = startMonth.toISOString();
-      endDate = endMonth.toISOString();
-    } else if (preset === "LAST_MONTH") {
-      const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
-      const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-      startDate = startLastMonth.toISOString();
-      endDate = endLastMonth.toISOString();
-    } else if (preset === "CUSTOM" && customStartDate && customEndDate) {
-      const startCustom = new Date(`${customStartDate}T00:00:00.000`);
-      const endCustom = new Date(`${customEndDate}T23:59:59.999`);
-      startDate = startCustom.toISOString();
-      endDate = endCustom.toISOString();
-    }
-
     try {
-      const query = startDate && endDate ? `?startDate=${startDate}&endDate=${endDate}` : "";
+      let query = `?preset=${preset}`;
+      if (preset === "CUSTOM" && customStartDate && customEndDate) {
+        query += `&startDate=${encodeURIComponent(customStartDate)}&endDate=${encodeURIComponent(customEndDate)}`;
+      }
       const res = await fetch(`/api/reports/summary${query}`);
       const data = await res.json();
       if (res.ok) {
@@ -221,39 +193,10 @@ export default function ReportsClient() {
   const handleExportExcel = async () => {
     setExportLoading(true);
     try {
-      let startDate = "";
-      let endDate = "";
-      const now = new Date();
-
-      if (periodPreset === "TODAY") {
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        startDate = todayStart.toISOString();
-        endDate = todayEnd.toISOString();
-      } else if (periodPreset === "7DAYS") {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(now.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-        startDate = sevenDaysAgo.toISOString();
-        endDate = now.toISOString();
-      } else if (periodPreset === "THIS_MONTH") {
-        const startMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-        const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-        startDate = startMonth.toISOString();
-        endDate = endMonth.toISOString();
-      } else if (periodPreset === "LAST_MONTH") {
-        const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
-        const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-        startDate = startLastMonth.toISOString();
-        endDate = endLastMonth.toISOString();
-      } else if (periodPreset === "CUSTOM" && customStartDate && customEndDate) {
-        const startCustom = new Date(`${customStartDate}T00:00:00.000`);
-        const endCustom = new Date(`${customEndDate}T23:59:59.999`);
-        startDate = startCustom.toISOString();
-        endDate = endCustom.toISOString();
+      let query = `?preset=${periodPreset}`;
+      if (periodPreset === "CUSTOM" && customStartDate && customEndDate) {
+        query += `&startDate=${encodeURIComponent(customStartDate)}&endDate=${encodeURIComponent(customEndDate)}`;
       }
-
-      const query = startDate && endDate ? `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}` : "";
       const res = await fetch(`/api/reports/export${query}`);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -461,19 +404,19 @@ export default function ReportsClient() {
       ) : (
         <div className="space-y-6">
           {/* Main Financial KPI Banner */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {/* Total Omzet */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-slate-500">
-                <span className="text-xs font-bold uppercase tracking-wider">Total Pendapatan (Omzet)</span>
+                <span className="text-xs font-bold uppercase tracking-wider">Total Omzet</span>
                 <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
                   <TrendingUp className="w-4 h-4" />
                 </div>
               </div>
-              <p className="text-2xl font-extrabold text-slate-900 mt-2">
+              <p className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-2 font-mono">
                 {formatRupiah(reportData.summary.totalGrossRevenue)}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">POS + Voucher + Digital</p>
+              <p className="text-[11px] text-slate-400 mt-1">POS+Voucher+Digital+Servis</p>
             </div>
 
             {/* Total HPP / Modal */}
@@ -484,37 +427,37 @@ export default function ReportsClient() {
                   <Layers className="w-4 h-4" />
                 </div>
               </div>
-              <p className="text-2xl font-extrabold text-slate-700 mt-2">
+              <p className="text-xl sm:text-2xl font-extrabold text-slate-700 mt-2 font-mono">
                 {formatRupiah(reportData.summary.totalCOGS)}
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">Harga pokok barang & pulsa</p>
+              <p className="text-[11px] text-slate-400 mt-1">Modal barang, pulsa & teknisi</p>
             </div>
 
             {/* Total Laba Kotor */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-slate-500">
-                <span className="text-xs font-bold uppercase tracking-wider">Total Laba Kotor</span>
+                <span className="text-xs font-bold uppercase tracking-wider">Laba Kotor</span>
                 <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
                   <Coins className="w-4 h-4" />
                 </div>
               </div>
-              <p className="text-2xl font-extrabold text-emerald-600 mt-2">
+              <p className="text-xl sm:text-2xl font-extrabold text-emerald-600 mt-2 font-mono">
                 +{formatRupiah(reportData.summary.totalGrossProfit)}
               </p>
               <p className="text-[11px] text-emerald-700 font-semibold mt-1">
-                Margin Kotor: {reportData.summary.grossMarginPercent}%
+                Margin: {reportData.summary.grossMarginPercent}%
               </p>
             </div>
 
             {/* Total Beban Pengeluaran */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-slate-500">
-                <span className="text-xs font-bold uppercase tracking-wider">Beban Operasional</span>
+                <span className="text-xs font-bold uppercase tracking-wider">Beban Toko</span>
                 <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
                   <Receipt className="w-4 h-4" />
                 </div>
               </div>
-              <p className="text-2xl font-extrabold text-rose-600 mt-2">
+              <p className="text-xl sm:text-2xl font-extrabold text-rose-600 mt-2 font-mono">
                 {formatRupiah(reportData.summary.totalExpenses)}
               </p>
               <div className="flex items-center justify-between mt-1">
@@ -536,11 +479,27 @@ export default function ReportsClient() {
                   <Sparkles className="w-4 h-4" />
                 </div>
               </div>
-              <p className="text-2xl font-extrabold text-white mt-2">
+              <p className="text-xl sm:text-2xl font-extrabold text-white mt-2 font-mono">
                 {formatRupiah(reportData.summary.netProfit)}
               </p>
               <p className="text-[11px] text-indigo-200 font-semibold mt-1">
                 Net Margin: {reportData.summary.netMarginPercent}%
+              </p>
+            </div>
+
+            {/* 6. Uang Kas Fisik di Laci (WIB) */}
+            <div className="bg-gradient-to-br from-emerald-950 via-slate-900 to-teal-950 p-5 rounded-3xl border border-emerald-500/40 shadow-sm flex flex-col justify-between text-white">
+              <div className="flex items-center justify-between text-emerald-300">
+                <span className="text-xs font-bold uppercase tracking-wider">Kas Fisik Laci (WIB)</span>
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center font-bold">
+                  <Banknote className="w-4 h-4" />
+                </div>
+              </div>
+              <p className="text-xl sm:text-2xl font-extrabold text-emerald-400 mt-2 font-mono">
+                {formatRupiah(reportData.physicalCash?.netDrawerCash || 0)}
+              </p>
+              <p className="text-[11px] text-emerald-200/80 font-medium mt-1">
+                Tunai POS+Voucher+Servis+Bon
               </p>
             </div>
           </div>
@@ -593,6 +552,18 @@ export default function ReportsClient() {
             >
               <SmartphoneNfc className="w-4 h-4" />
               <span>Transaksi Digital (PPOB)</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("SERVICES")}
+              className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === "SERVICES"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Wrench className="w-4 h-4" />
+              <span>Jasa Servis HP ({reportData?.channels?.service?.totalCount || 0})</span>
             </button>
 
             <button
@@ -670,6 +641,12 @@ export default function ReportsClient() {
                         {formatRupiah(reportData.channels.digital.revenue)}
                       </span>
                     </div>
+                    <div className="flex justify-between py-1 text-slate-700">
+                      <span>4. Jasa Servis & Perbaikan HP ({reportData.channels?.service?.totalCount || 0} unit)</span>
+                      <span className="font-semibold font-mono">
+                        {formatRupiah(reportData.channels?.service?.revenue || 0)}
+                      </span>
+                    </div>
                     <div className="flex justify-between py-2 border-t border-slate-200 font-extrabold text-slate-900 text-xs bg-slate-50/70 px-2 rounded-lg">
                       <span>TOTAL PENDAPATAN KOTOR (A)</span>
                       <span className="font-mono">{formatRupiah(reportData.summary.totalGrossRevenue)}</span>
@@ -700,6 +677,12 @@ export default function ReportsClient() {
                       <span>3. Modal Produk Digital / Saldo Terpakai</span>
                       <span className="font-semibold font-mono text-slate-600">
                         {formatRupiah(reportData.channels.digital.cost)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1 text-slate-700">
+                      <span>4. Biaya Komisi Teknisi & Sparepart Servis</span>
+                      <span className="font-semibold font-mono text-slate-600">
+                        {formatRupiah(reportData.channels?.service?.cost || 0)}
                       </span>
                     </div>
                     <div className="flex justify-between py-2 border-t border-slate-200 font-extrabold text-slate-800 text-xs bg-slate-50/70 px-2 rounded-lg">
@@ -740,6 +723,15 @@ export default function ReportsClient() {
                         +{formatRupiah(reportData.channels.digital.profit)}{" "}
                         <span className="text-[10px] text-slate-400">
                           ({reportData.channels.digital.marginPercent}%)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1 text-slate-700">
+                      <span>4. Laba Bersih Toko dari Servis HP</span>
+                      <span className="font-semibold font-mono text-emerald-600">
+                        +{formatRupiah(reportData.channels?.service?.profit || 0)}{" "}
+                        <span className="text-[10px] text-slate-400">
+                          ({reportData.channels?.service?.marginPercent || 0}%)
                         </span>
                       </span>
                     </div>
@@ -800,6 +792,185 @@ export default function ReportsClient() {
                     </div>
                   </div>
                 </div>
+
+                {/* SECTION 6: CASH IN DRAWER RECONCILIATION */}
+                {reportData.physicalCash && (
+                  <div className="pt-6 border-t-2 border-slate-200 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                      <div>
+                        <h4 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
+                          <Banknote className="w-5 h-5 text-emerald-600" />
+                          <span>VI. REKONSILIASI UANG KAS FISIK DI LACI KASIR (WIB)</span>
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Perhitungan uang tunai fisik yang wajib ada di laci kasir (Zona Waktu WIB UTC+7: 00:00:00 - 23:59:59)
+                        </p>
+                      </div>
+                      <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Sisa Fisik: {formatRupiah(reportData.physicalCash.netDrawerCash)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Left: Kas Tunai Masuk & Keluar */}
+                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                            <Banknote className="w-4 h-4 text-emerald-600" />
+                            <span>Arus Kas Tunai Fisik (Cash Drawer)</span>
+                          </span>
+                          <span className="font-mono font-bold text-xs text-emerald-600">
+                            Masuk: +{formatRupiah(reportData.physicalCash.totalCashIn)}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>1. Penjualan Aksesoris POS (Cash)</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.posCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>2. Penjualan Voucher Fisik (Cash)</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.voucherCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>3. Jasa Servis HP (Cash)</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.serviceCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>4. Pelunasan Bon Piutang (Cash pada Hari Dilunaskan)</span>
+                            <span className="font-semibold font-mono text-emerald-700 font-bold">
+                              +{formatRupiah(reportData.physicalCash.settledDebtCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1.5 bg-emerald-50 px-2 rounded-lg font-bold text-emerald-800">
+                            <span>TOTAL KAS FISIK MASUK</span>
+                            <span className="font-mono">+{formatRupiah(reportData.physicalCash.totalCashIn)}</span>
+                          </div>
+                          <div className="flex justify-between py-1 text-rose-600">
+                            <span>5. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span className="font-semibold font-mono">
+                              -{formatRupiah(reportData.physicalCash.expenseCash)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-2.5 bg-emerald-700 text-white px-3 rounded-xl font-extrabold text-sm shadow-sm">
+                            <span>SISA UANG FISIK DI LACI:</span>
+                            <span className="font-mono">{formatRupiah(reportData.physicalCash.netDrawerCash)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Non-Tunai (Rekening Bank / QRIS) */}
+                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-indigo-600" />
+                            <span>Pembeda Non-Tunai (Masuk Bank / QRIS)</span>
+                          </span>
+                          <span className="font-mono font-bold text-xs text-indigo-600">
+                            Total: {formatRupiah(reportData.physicalCash.nonCash?.total || 0)}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-500">
+                          Uang non-tunai langsung masuk ke rekening bank / e-wallet dan <strong>tidak boleh dihitung</strong> saat penutupan laci uang fisik:
+                        </p>
+
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>• POS Retail (Transfer / QRIS)</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.nonCash?.pos || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>• Voucher Fisik (Transfer / QRIS)</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.nonCash?.voucher || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>• Jasa Servis HP (Transfer / QRIS)</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.nonCash?.service || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>• Transaksi Digital / PPOB</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.nonCash?.digital || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700">
+                            <span>• Pelunasan Bon Non-Tunai</span>
+                            <span className="font-semibold font-mono">
+                              {formatRupiah(reportData.physicalCash.nonCash?.settledDebt || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-2 bg-indigo-50 px-2 rounded-lg font-bold text-indigo-800">
+                            <span>TOTAL UANG MASUK BANK / QRIS</span>
+                            <span className="font-mono">{formatRupiah(reportData.physicalCash.nonCash?.total || 0)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Settled Debt Notes Details (If any in period) */}
+                    {reportData.physicalCash.settledDebtList?.length > 0 && (
+                      <div className="bg-amber-50/60 rounded-2xl p-4 border border-amber-200 space-y-2">
+                        <span className="text-xs font-bold text-amber-900 uppercase tracking-wider block">
+                          📝 Rincian Nota Bon Piutang yang Dilunaskan pada Periode Ini (WIB)
+                        </span>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs text-slate-800">
+                            <thead>
+                              <tr className="border-b border-amber-200 text-amber-900 text-[10px] uppercase">
+                                <th className="pb-2">No. Nota</th>
+                                <th className="pb-2">Nama Pelanggan</th>
+                                <th className="pb-2 text-right">Nominal Lunas</th>
+                                <th className="pb-2 text-center">Metode Bayar</th>
+                                <th className="pb-2 text-right">Waktu Pelunasan (WIB)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-amber-100 font-mono">
+                              {reportData.physicalCash.settledDebtList.map((item: any) => {
+                                const pTime = item.paidAt ? new Date(item.paidAt).toLocaleDateString("id-ID", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }) + " WIB" : "-";
+
+                                return (
+                                  <tr key={item.id} className="hover:bg-amber-100/50">
+                                    <td className="py-1.5 font-bold text-slate-900">{item.invoiceNumber}</td>
+                                    <td className="py-1.5 font-sans text-slate-800">{item.customerName}</td>
+                                    <td className="py-1.5 text-right font-bold text-emerald-700">
+                                      {formatRupiah(item.finalAmount)}
+                                    </td>
+                                    <td className="py-1.5 text-center">
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                                        {item.paidMethod}
+                                      </span>
+                                    </td>
+                                    <td className="py-1.5 text-right font-sans text-slate-600 text-[11px]">{pTime}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1021,6 +1192,223 @@ export default function ReportsClient() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: JASA SERVIS & PERFORMA TEKNISI */}
+          {activeTab === "SERVICES" && (
+            <div className="space-y-6 animate-in fade-in">
+              {/* Header Info */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-2 gap-2">
+                <div>
+                  <h3 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
+                    <Wrench className="w-5 h-5 text-indigo-600" />
+                    <span>Laporan Jasa Servis & Pembagian Komisi Teknisi</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Rekap pendapatan jasa perbaikan, hak komisi teknisi, biaya suku cadang, dan profit toko
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    {reportData.channels.service?.totalCount || 0} Servis Selesai & Lunas
+                  </span>
+                </div>
+              </div>
+
+              {/* 4 Financial KPI Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Unit Diservis</span>
+                  <p className="text-2xl font-black text-slate-900 mt-1">
+                    {reportData.channels.service?.totalCount || 0}{" "}
+                    <span className="text-sm font-semibold text-slate-500">unit</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Status SELESAI & LUNAS</p>
+                </div>
+
+                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm">
+                  <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Total Omzet Jasa</span>
+                  <p className="text-2xl font-black text-blue-600 mt-1">
+                    {formatRupiah(reportData.channels.service?.revenue || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Tagihan jasa ke pelanggan</p>
+                </div>
+
+                <div className="bg-white p-5 rounded-3xl border border-amber-200/80 shadow-sm">
+                  <span className="text-xs font-bold text-amber-700 uppercase tracking-wider">Komisi Teknisi</span>
+                  <p className="text-2xl font-black text-amber-700 mt-1">
+                    {formatRupiah(reportData.channels.service?.technicianFee || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Sparepart: {formatRupiah(reportData.channels.service?.sparepartCost || 0)}
+                  </p>
+                </div>
+
+                <div className="bg-white p-5 rounded-3xl border border-emerald-200/80 shadow-sm">
+                  <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider">Laba Bersih Toko</span>
+                  <p className="text-2xl font-black text-emerald-600 mt-1">
+                    +{formatRupiah(reportData.channels.service?.profit || 0)}
+                  </p>
+                  <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                    Margin Toko: {reportData.channels.service?.marginPercent || 0}%
+                  </p>
+                </div>
+              </div>
+
+              {/* Rekap Performa & Hak Komisi per Teknisi */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                  <div>
+                    <h4 className="font-extrabold text-slate-900 text-base">
+                      Rekapitulasi Komisi per Teknisi
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Rincian hak pembayaran bagi hasil komisi untuk masing-masing teknisi toko
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3">Nama Teknisi</th>
+                        <th className="px-4 py-3 text-center">Unit Selesai</th>
+                        <th className="px-4 py-3 text-right">Total Jasa Bruto</th>
+                        <th className="px-4 py-3 text-right text-amber-700">Hak Komisi Teknisi</th>
+                        <th className="px-4 py-3 text-right text-emerald-700">Laba Masuk Toko</th>
+                        <th className="px-4 py-3 text-right">Porsi Omzet</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {!reportData.channels.service?.technicianBreakdown ||
+                      reportData.channels.service.technicianBreakdown.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-400">
+                            Belum ada riwayat servis selesai oleh teknisi pada periode ini
+                          </td>
+                        </tr>
+                      ) : (
+                        reportData.channels.service.technicianBreakdown.map((t: any) => {
+                          const sharePercent =
+                            (reportData.channels.service?.revenue || 0) > 0
+                              ? Number(
+                                  (
+                                    (t.revenue /
+                                      (reportData.channels.service?.revenue || 1)) *
+                                    100
+                                  ).toFixed(1)
+                                )
+                              : 0;
+
+                          return (
+                            <tr key={t.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-3.5 font-bold text-slate-900 flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                                  {t.name.slice(0, 1).toUpperCase()}
+                                </div>
+                                <span>{t.name}</span>
+                              </td>
+                              <td className="px-4 py-3.5 text-center font-semibold text-slate-800">
+                                {t.count} unit
+                              </td>
+                              <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-800">
+                                {formatRupiah(t.revenue)}
+                              </td>
+                              <td className="px-4 py-3.5 text-right font-mono font-bold text-amber-700">
+                                {formatRupiah(t.commission)}
+                              </td>
+                              <td className="px-4 py-3.5 text-right font-mono font-bold text-emerald-700">
+                                +{formatRupiah(t.storeProfit)}
+                              </td>
+                              <td className="px-4 py-3.5 text-right font-semibold text-slate-500">
+                                {sharePercent}%
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Rincian Transaksi Servis */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
+                  <div>
+                    <h4 className="font-extrabold text-slate-900 text-base">
+                      Daftar Riwayat Servis (Selesai & Lunas)
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Rincian nota transaksi servis yang telah tuntas pada periode ini
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3">No. Servis / Tanggal</th>
+                        <th className="px-4 py-3">Tipe HP & Kendala</th>
+                        <th className="px-4 py-3">Teknisi & Persenan</th>
+                        <th className="px-4 py-3 text-right">Biaya Jasa</th>
+                        <th className="px-4 py-3 text-right text-amber-700">Komisi Teknisi</th>
+                        <th className="px-4 py-3 text-right text-emerald-700">Profit Toko</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {!reportData.channels.service?.recentServices ||
+                      reportData.channels.service.recentServices.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-400">
+                            Tidak ada transaksi servis selesai di periode ini
+                          </td>
+                        </tr>
+                      ) : (
+                        reportData.channels.service.recentServices.map((s: any) => (
+                          <tr key={s.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 font-mono">
+                              <span className="font-bold text-indigo-700 block">{s.serviceNumber}</span>
+                              <span className="text-[10px] text-slate-400">
+                                {new Date(s.createdAt).toLocaleDateString("id-ID", {
+                                  day: "numeric",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="font-bold text-slate-900 block">{s.deviceType}</span>
+                              <span className="text-[11px] text-slate-500 line-clamp-1">{s.damageNotes}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="font-bold text-slate-800 block">
+                                {s.technician?.name || "Teknisi Toko"}
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold">
+                                {s.technicianPercentage}% Komisi
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">
+                              {formatRupiah(s.serviceFee)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono font-bold text-amber-700">
+                              {formatRupiah(s.technicianFee)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono font-bold text-emerald-700">
+                              +{formatRupiah(s.storeProfit)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>

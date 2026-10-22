@@ -631,7 +631,7 @@ export default function PosClient({
 
   // Checkout Handler with Connection Resilience
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (loading || cart.length === 0) return;
 
     if (paymentMethod === "CASH" && cashGiven < finalTotal) {
       setErrorMessage(
