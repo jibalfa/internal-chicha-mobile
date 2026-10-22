@@ -912,8 +912,8 @@ export default function ServicesClient({
                     <input
                       type="number"
                       required
-                      min="1"
-                      step="500"
+                      min="0"
+                      step="any"
                       value={formServiceFee}
                       onChange={(e) =>
                         setFormServiceFee(e.target.value ? parseFloat(e.target.value) : "")
@@ -930,7 +930,7 @@ export default function ServicesClient({
                     <input
                       type="number"
                       min="0"
-                      step="500"
+                      step="any"
                       value={formSparepartCost}
                       onChange={(e) =>
                         setFormSparepartCost(e.target.value ? parseFloat(e.target.value) : "")
