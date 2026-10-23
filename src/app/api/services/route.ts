@@ -44,10 +44,12 @@ export async function GET(request: NextRequest) {
     if (startDateParam || endDateParam) {
       where.createdAt = {};
       if (startDateParam) {
-        where.createdAt.gte = new Date(startDateParam + "T00:00:00.000Z");
+        const sStr = startDateParam.includes("T") ? startDateParam.split("T")[0] : startDateParam;
+        where.createdAt.gte = new Date(`${sStr}T00:00:00.000+07:00`);
       }
       if (endDateParam) {
-        where.createdAt.lte = new Date(endDateParam + "T23:59:59.999Z");
+        const eStr = endDateParam.includes("T") ? endDateParam.split("T")[0] : endDateParam;
+        where.createdAt.lte = new Date(`${eStr}T23:59:59.999+07:00`);
       }
     }
 

@@ -14,7 +14,6 @@ export default async function ServicesPage() {
 
   const [services, technicians, storeSetting] = await Promise.all([
     (prisma as any).serviceRecord.findMany({
-      take: 150,
       orderBy: { createdAt: "desc" },
       include: {
         technician: true,

@@ -74,6 +74,72 @@ interface ServicesClientProps {
   userName: string;
 }
 
+// WIB Date Helper Functions
+const getWIBTodayStr = (): string => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(new Date());
+};
+
+const getWIBWeekAgoStr = (): string => {
+  const todayStr = getWIBTodayStr();
+  const d = new Date(`${todayStr}T12:00:00+07:00`);
+  d.setDate(d.getDate() - 6);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(d);
+};
+
+const getWIBMonthRangeStr = (): { start: string; end: string } => {
+  const todayStr = getWIBTodayStr();
+  const [yStr, mStr] = todayStr.split("-");
+  const y = parseInt(yStr, 10);
+  const m = parseInt(mStr, 10);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const lastDay = new Date(y, m, 0).getDate();
+  return {
+    start: `${y}-${pad(m)}-01`,
+    end: `${y}-${pad(m)}-${pad(lastDay)}`,
+  };
+};
+
+const formatIndoDate = (dateStr: string): string => {
+  if (!dateStr) return "";
+  try {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const months = [
+      "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+      "Jul", "Agu", "Sep", "Okt", "Nov", "Des"
+    ];
+    return `${d} ${months[m - 1]} ${y}`;
+  } catch {
+    return dateStr;
+  }
+};
+
+const getRecordWIBDateStr = (isoString: string): string => {
+  try {
+    const d = new Date(isoString);
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return formatter.format(d);
+  } catch {
+    return "";
+  }
+};
+
 export default function ServicesClient({
   initialServices,
   technicians: initialTechs,
@@ -90,6 +156,65 @@ export default function ServicesClient({
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<string>("ALL");
+
+  // Date Filters: default "today" (Per Hari)
+  const [datePreset, setDatePreset] = useState<"all" | "today" | "week" | "month" | "custom">("today");
+  const [startDate, setStartDate] = useState<string>(getWIBTodayStr);
+  const [endDate, setEndDate] = useState<string>(getWIBTodayStr);
+
+  const applyDatePreset = (preset: "all" | "today" | "week" | "month") => {
+    setDatePreset(preset);
+    const todayStr = getWIBTodayStr();
+
+    if (preset === "today") {
+      setStartDate(todayStr);
+      setEndDate(todayStr);
+    } else if (preset === "week") {
+      setStartDate(getWIBWeekAgoStr());
+      setEndDate(todayStr);
+    } else if (preset === "month") {
+      const monthRange = getWIBMonthRangeStr();
+      setStartDate(monthRange.start);
+      setEndDate(monthRange.end);
+    } else if (preset === "all") {
+      setStartDate("");
+      setEndDate("");
+    }
+  };
+
+  const handleStartDateChange = (val: string) => {
+    setStartDate(val);
+    setDatePreset("custom");
+  };
+
+  const handleEndDateChange = (val: string) => {
+    setEndDate(val);
+    setDatePreset("custom");
+  };
+
+  const getPeriodLabel = (): string => {
+    if (datePreset === "today") {
+      return `Hari Ini (${formatIndoDate(startDate)})`;
+    }
+    if (datePreset === "week") {
+      return `7 Hari Terakhir (${formatIndoDate(startDate)} - ${formatIndoDate(endDate)})`;
+    }
+    if (datePreset === "month") {
+      return `Bulan Ini (${formatIndoDate(startDate)} - ${formatIndoDate(endDate)})`;
+    }
+    if (datePreset === "custom") {
+      if (startDate && endDate) {
+        if (startDate === endDate) {
+          return `Tanggal ${formatIndoDate(startDate)}`;
+        }
+        return `${formatIndoDate(startDate)} s/d ${formatIndoDate(endDate)}`;
+      }
+      if (startDate) return `Mulai ${formatIndoDate(startDate)}`;
+      if (endDate) return `Sampai ${formatIndoDate(endDate)}`;
+      return "Rentang Kustom";
+    }
+    return "Semua Waktu";
+  };
 
   // Modal: Add / Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -120,12 +245,7 @@ export default function ServicesClient({
   const fetchServices = async () => {
     setLoading(true);
     try {
-      let query = "?";
-      if (search) query += `search=${encodeURIComponent(search)}&`;
-      if (selectedStatus !== "ALL") query += `status=${selectedStatus}&`;
-      if (selectedTechnicianId !== "ALL") query += `technicianId=${selectedTechnicianId}&`;
-
-      const res = await fetch(`/api/services${query}`);
+      const res = await fetch("/api/services");
       const data = await res.json();
       if (res.ok) {
         setServices(data);
@@ -359,7 +479,18 @@ export default function ServicesClient({
     const matchStatus = selectedStatus === "ALL" || s.status === selectedStatus;
     const matchTech = selectedTechnicianId === "ALL" || s.technicianId === selectedTechnicianId;
 
-    return matchSearch && matchStatus && matchTech;
+    let matchDate = true;
+    if (startDate || endDate) {
+      const sDateStr = getRecordWIBDateStr(s.createdAt);
+      if (startDate && sDateStr < startDate) {
+        matchDate = false;
+      }
+      if (endDate && sDateStr > endDate) {
+        matchDate = false;
+      }
+    }
+
+    return matchSearch && matchStatus && matchTech && matchDate;
   });
 
   // Aggregates for filtered data (Hanya servis yang sudah selesai / diambil dan lunas)
@@ -518,50 +649,183 @@ export default function ServicesClient({
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex-1 flex items-center gap-2 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200/70">
-          <Search className="w-4 h-4 text-slate-400 shrink-0" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari tipe HP, kendala, no. servis, atau pelanggan..."
-            className="w-full text-xs outline-none bg-transparent text-slate-800 placeholder-slate-400"
-          />
-          {search && (
-            <button onClick={() => setSearch("")} className="text-xs text-slate-400 hover:text-slate-600">
-              Clear
-            </button>
-          )}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3.5">
+        {/* Baris 1: Pencarian Cepat, Status, dan Teknisi */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex-1 flex items-center gap-2 bg-slate-50 px-3.5 py-2.5 rounded-xl border border-slate-200/70 focus-within:border-teal-500 focus-within:bg-white transition-all">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari tipe HP, kendala, no. servis, atau pelanggan..."
+              className="w-full text-xs outline-none bg-transparent text-slate-800 placeholder-slate-400"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="text-xs text-slate-400 hover:text-slate-600">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Status Filter */}
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-teal-500 cursor-pointer shadow-sm"
+            >
+              <option value="ALL">Semua Status</option>
+              <option value="COMPLETED">Selesai</option>
+              <option value="IN_PROGRESS">Dalam Proses</option>
+              <option value="PENDING">Menunggu Part</option>
+              <option value="CANCELLED">Dibatalkan</option>
+            </select>
+
+            {/* Technician Filter */}
+            <select
+              value={selectedTechnicianId}
+              onChange={(e) => setSelectedTechnicianId(e.target.value)}
+              className="px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-teal-500 cursor-pointer shadow-sm"
+            >
+              <option value="ALL">Semua Teknisi</option>
+              {technicians.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Status Filter */}
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-teal-500"
-          >
-            <option value="ALL">Semua Status</option>
-            <option value="COMPLETED">Selesai</option>
-            <option value="IN_PROGRESS">Dalam Proses</option>
-            <option value="PENDING">Menunggu Part</option>
-            <option value="CANCELLED">Dibatalkan</option>
-          </select>
+        {/* Baris 2: Filter Periode (Per Hari, Per Minggu, Per Bulan, Semua Waktu & Kustom) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+          {/* Quick Date Presets */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-teal-600" />
+              <span>Periode:</span>
+            </span>
 
-          {/* Technician Filter */}
-          <select
-            value={selectedTechnicianId}
-            onChange={(e) => setSelectedTechnicianId(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white focus:outline-none focus:border-teal-500"
-          >
-            <option value="ALL">Semua Teknisi</option>
-            {technicians.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+            <button
+              type="button"
+              onClick={() => applyDatePreset("today")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                datePreset === "today"
+                  ? "bg-teal-600 text-white shadow-md shadow-teal-600/20"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+              }`}
+            >
+              <span>Hari Ini</span>
+              <span className={`text-[10px] ${datePreset === "today" ? "text-teal-100" : "text-slate-400"}`}>
+                (Per Hari)
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyDatePreset("week")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                datePreset === "week"
+                  ? "bg-teal-600 text-white shadow-md shadow-teal-600/20"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+              }`}
+            >
+              <span>7 Hari</span>
+              <span className={`text-[10px] ${datePreset === "week" ? "text-teal-100" : "text-slate-400"}`}>
+                (Per Minggu)
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyDatePreset("month")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                datePreset === "month"
+                  ? "bg-teal-600 text-white shadow-md shadow-teal-600/20"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+              }`}
+            >
+              <span>Bulan Ini</span>
+              <span className={`text-[10px] ${datePreset === "month" ? "text-teal-100" : "text-slate-400"}`}>
+                (Per Bulan)
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyDatePreset("all")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                datePreset === "all"
+                  ? "bg-slate-900 text-white shadow-md shadow-slate-900/20"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+              }`}
+            >
+              Semua Waktu
+            </button>
+          </div>
+
+          {/* Custom Date Pickers */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs">
+              <span className="text-[10px] text-slate-400 font-bold uppercase">Dari:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => handleStartDateChange(e.target.value)}
+                className="bg-transparent border-none text-slate-800 text-xs font-semibold focus:outline-none cursor-pointer"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs">
+              <span className="text-[10px] text-slate-400 font-bold uppercase">Sampai:</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => handleEndDateChange(e.target.value)}
+                className="bg-transparent border-none text-slate-800 text-xs font-semibold focus:outline-none cursor-pointer"
+              />
+            </div>
+
+            {(datePreset !== "all" || startDate || endDate) && (
+              <button
+                type="button"
+                onClick={() => applyDatePreset("all")}
+                className="px-2.5 py-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-xl font-bold transition-all flex items-center gap-1 cursor-pointer border border-rose-200/60"
+                title="Reset filter periode"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Info Banner showing active filter summary */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] pt-1 text-slate-500 bg-slate-50/80 px-3 py-2 rounded-xl border border-slate-100 gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-semibold text-slate-700">Filter Aktif:</span>
+            <span className="bg-teal-100 text-teal-800 font-bold px-2 py-0.5 rounded-md">
+              📅 {getPeriodLabel()}
+            </span>
+            {selectedStatus !== "ALL" && (
+              <span className="bg-slate-200 text-slate-700 font-bold px-2 py-0.5 rounded-md">
+                Status: {selectedStatus}
+              </span>
+            )}
+            {selectedTechnicianId !== "ALL" && (
+              <span className="bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-md">
+                Teknisi: {technicians.find((t) => t.id === selectedTechnicianId)?.name || selectedTechnicianId}
+              </span>
+            )}
+            {search && (
+              <span className="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-md">
+                Cari: &quot;{search}&quot;
+              </span>
+            )}
+          </div>
+          <div className="text-slate-600">
+            Menampilkan <span className="font-extrabold text-teal-900">{filteredServices.length}</span> data servis
+          </div>
         </div>
       </div>
 
@@ -573,18 +837,42 @@ export default function ServicesClient({
               <Wrench className="w-8 h-8" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800 text-base">Belum Ada Transaksi Servis</h3>
+              <h3 className="font-bold text-slate-800 text-base">
+                {datePreset !== "all" || search || selectedStatus !== "ALL" || selectedTechnicianId !== "ALL"
+                  ? "Tidak Ada Data Servis Ditemukan"
+                  : "Belum Ada Transaksi Servis"}
+              </h3>
               <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                Catat servis HP pertama dari pelanggan untuk mulai mencatat biaya jasa dan membagi komisi teknisi.
+                {datePreset !== "all" || search || selectedStatus !== "ALL" || selectedTechnicianId !== "ALL"
+                  ? `Tidak ada transaksi servis yang sesuai dengan periode ${getPeriodLabel()} atau filter yang dipilih. Coba ganti filter atau reset.`
+                  : "Catat servis HP pertama dari pelanggan untuk mulai mencatat biaya jasa dan membagi komisi teknisi."}
               </p>
             </div>
-            <button
-              onClick={handleOpenAdd}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-teal-600 text-white font-bold text-xs hover:bg-teal-700 shadow-md shadow-teal-600/20"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Catat Servis Baru</span>
-            </button>
+            <div className="flex items-center justify-center gap-2">
+              {(datePreset !== "all" || search || selectedStatus !== "ALL" || selectedTechnicianId !== "ALL") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setSelectedStatus("ALL");
+                    setSelectedTechnicianId("ALL");
+                    applyDatePreset("all");
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Semua Filter</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenAdd}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-teal-600 text-white font-bold text-xs hover:bg-teal-700 shadow-md shadow-teal-600/20"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Catat Servis Baru</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
