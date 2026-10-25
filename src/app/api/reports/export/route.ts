@@ -50,6 +50,11 @@ const C = {
   serviceHeader: "FF0D9488",
   serviceLight: "FFCCFBF1",
 
+  // Sheet Theme Headers for Technicians
+  technicianPrimary: "FFB45309",
+  technicianHeader: "FF78350F",
+  technicianLight: "FFFEF3C7",
+
   // Status Badges
   greenBg: "FFDCFCE7",
   greenText: "FF166534",
@@ -77,6 +82,8 @@ function applyStatusStyle(cell: ExcelJS.Cell, statusText: string) {
       "LUNAS",
       "BERHASIL",
       "AMAN",
+      "AKTIF",
+      "SELESAI",
       "SURPLUS / PROFIT BERSIH",
       "SURPLUS / PROFIT BERSIH USAHA",
     ].includes(s)
@@ -89,7 +96,7 @@ function applyStatusStyle(cell: ExcelJS.Cell, statusText: string) {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.amberBg } };
     cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.amberText } };
   } else if (
-    ["GAGAL", "HABIS", "DEFISIT / RUGI", "DEFISIT / KERUGIAN USAHA"].includes(s)
+    ["GAGAL", "HABIS", "NONAKTIF", "DEFISIT / RUGI", "DEFISIT / KERUGIAN USAHA"].includes(s)
   ) {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.redBg } };
     cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.redText } };
@@ -493,6 +500,10 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
+    const allTechnicians = await (prisma as any).technician.findMany({
+      orderBy: { name: "asc" },
+    });
+
     let serviceRevenue = 0;
     let serviceSparepartCost = 0;
     let serviceTechnicianFee = 0;
@@ -543,6 +554,73 @@ export async function GET(request: NextRequest) {
     }
 
     const serviceCost = serviceSparepartCost + serviceTechnicianFee;
+
+    // 7. Hitung Rekapitulasi Total Komisi per Teknisi pada periode pilihan
+    const techBreakdownMap: Record<
+      string,
+      {
+        id: string;
+        name: string;
+        phone: string;
+        isActive: boolean;
+        defaultPercentage: number;
+        completedCount: number;
+        grossRevenue: number;
+        sparepartCost: number;
+        commission: number;
+        storeProfit: number;
+      }
+    > = {};
+
+    for (const t of allTechnicians) {
+      techBreakdownMap[t.id] = {
+        id: t.id,
+        name: t.name,
+        phone: t.phone || "-",
+        isActive: t.isActive,
+        defaultPercentage: t.defaultPercentage || 50,
+        completedCount: 0,
+        grossRevenue: 0,
+        sparepartCost: 0,
+        commission: 0,
+        storeProfit: 0,
+      };
+    }
+
+    for (const s of services) {
+      const techId = s.technician?.id || s.technicianId || "unknown";
+      if (!techBreakdownMap[techId]) {
+        techBreakdownMap[techId] = {
+          id: techId,
+          name: s.technician?.name || "Teknisi",
+          phone: s.technician?.phone || "-",
+          isActive: true,
+          defaultPercentage: s.technicianPercentage || 50,
+          completedCount: 0,
+          grossRevenue: 0,
+          sparepartCost: 0,
+          commission: 0,
+          storeProfit: 0,
+        };
+      }
+      techBreakdownMap[techId].completedCount += 1;
+      techBreakdownMap[techId].grossRevenue += s.serviceFee || 0;
+      techBreakdownMap[techId].sparepartCost += s.sparepartCost || 0;
+      techBreakdownMap[techId].commission += s.technicianFee || 0;
+      techBreakdownMap[techId].storeProfit += s.storeProfit || 0;
+    }
+
+    const techList = Object.values(techBreakdownMap).sort((a, b) => {
+      if (b.commission !== a.commission) return b.commission - a.commission;
+      if (b.completedCount !== a.completedCount) return b.completedCount - a.completedCount;
+      return a.name.localeCompare(b.name);
+    });
+
+    const totalTechUnits = techList.reduce((sum, t) => sum + t.completedCount, 0);
+    const totalTechGrossRevenue = techList.reduce((sum, t) => sum + t.grossRevenue, 0);
+    const totalTechSparepart = techList.reduce((sum, t) => sum + t.sparepartCost, 0);
+    const totalTechCommission = techList.reduce((sum, t) => sum + t.commission, 0);
+    const totalTechStoreProfit = techList.reduce((sum, t) => sum + t.storeProfit, 0);
 
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
@@ -1698,7 +1776,169 @@ export async function GET(request: NextRequest) {
     ];
 
     // ==========================================
-    // SHEET 8: DETAIL SERVIS & TEKNISI HP
+    // SHEET 8: REKAPITULASI TOTAL KOMISI TEKNISI
+    // ==========================================
+    const wsTech = wb.addWorksheet("Rekap Komisi Teknisi", {
+      views: [{ showGridLines: true }],
+    });
+
+    addSheetHeader(
+      wsTech,
+      "CHICHA MOBILE - REKAPITULASI TOTAL KOMISI TEKNISI",
+      `Periode: ${periodStr} | Total Komisi Hak Teknisi: Rp ${(isOwner ? totalTechCommission : 0).toLocaleString("id-ID")} | Total Servis: ${totalTechUnits} unit`,
+      11,
+      C.technicianHeader
+    );
+
+    // Section 1 Header
+    wsTech.mergeCells(4, 1, 4, 11);
+    const sTech = wsTech.getCell(4, 1);
+    sTech.value = "1. TABEL RINCIAN HAK PEMBAGIAN KOMISI TEKNISI (PERIODE: " + periodStr.toUpperCase() + ")";
+    sTech.font = { name: "Calibri", size: 11, bold: true, color: { argb: C.white } };
+    sTech.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.technicianPrimary } };
+    sTech.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    wsTech.getRow(4).height = 25;
+
+    const techHeaders = [
+      "No",
+      "Nama Teknisi",
+      "No. Telepon / WhatsApp",
+      "Status Teknisi",
+      "Unit Selesai",
+      "Total Omset Jasa Bruto (Rp)",
+      "Total Modal Sparepart (Rp)",
+      "Rata-rata Komisi (%)",
+      "TOTAL HAK KOMISI TEKNISI (Rp)",
+      "Laba Bersih Toko (Rp)",
+      "Porsi Kontribusi Omzet (%)",
+    ];
+    addTableHeader(wsTech, 5, techHeaders, C.slateHeader);
+
+    // Give the Commission Header a distinctive Amber/Gold accent in header
+    const commHeadCell = wsTech.getRow(5).getCell(9);
+    commHeadCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFB45309" } };
+    commHeadCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.white } };
+
+    const techColFormats: ColFormat[] = [
+      "center",
+      "left",
+      "center",
+      "status",
+      "qty",
+      "rp",
+      "rp",
+      "pct",
+      "rp",
+      "rp",
+      "pct",
+    ];
+
+    if (techList.length === 0) {
+      wsTech.mergeCells(6, 1, 6, 11);
+      const emptyCell = wsTech.getCell(6, 1);
+      emptyCell.value = "Belum ada riwayat servis selesai atau data teknisi pada periode waktu ini.";
+      emptyCell.alignment = { horizontal: "center", vertical: "middle" };
+      emptyCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: C.slateMuted } };
+      wsTech.getRow(6).height = 24;
+    } else {
+      techList.forEach((t, idx) => {
+        const rowNum = 6 + idx;
+        const row = wsTech.getRow(rowNum);
+        const netLabor = t.grossRevenue - t.sparepartCost;
+        const avgPct = netLabor > 0 ? t.commission / netLabor : (t.defaultPercentage || 50) / 100;
+        const porsi = totalTechGrossRevenue > 0 ? t.grossRevenue / totalTechGrossRevenue : 0;
+
+        const rowVals = [
+          idx + 1,
+          t.name,
+          t.phone,
+          t.isActive ? "AKTIF" : "NONAKTIF",
+          t.completedCount,
+          isOwner ? t.grossRevenue : 0,
+          isOwner ? t.sparepartCost : 0,
+          avgPct,
+          isOwner ? t.commission : 0,
+          isOwner ? t.storeProfit : 0,
+          porsi,
+        ];
+
+        renderDataRow(row, rowVals, techColFormats, idx % 2 === 1);
+
+        // Highlight Hak Komisi Teknisi cell (Col 9)
+        if (isOwner) {
+          const commCell = row.getCell(9);
+          commCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF92400E" } };
+          commCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
+        }
+      });
+    }
+
+    const techTotalRowNum = 6 + Math.max(1, techList.length);
+    renderTotalRow(
+      wsTech.getRow(techTotalRowNum),
+      [
+        "",
+        "TOTAL KESELURUHAN KOMISI TEKNISI",
+        "",
+        "",
+        totalTechUnits,
+        isOwner ? totalTechGrossRevenue : 0,
+        isOwner ? totalTechSparepart : 0,
+        "",
+        isOwner ? totalTechCommission : 0,
+        isOwner ? totalTechStoreProfit : 0,
+        totalTechGrossRevenue > 0 ? 1 : 0,
+      ],
+      techColFormats,
+      C.technicianLight
+    );
+
+    // Style the Total Commission cell with extra prominence
+    const grandCommCell = wsTech.getRow(techTotalRowNum).getCell(9);
+    grandCommCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF78350F" } };
+    grandCommCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDE68A" } };
+
+    // Notes
+    const noteStartRow = techTotalRowNum + 2;
+    wsTech.mergeCells(noteStartRow, 1, noteStartRow, 11);
+    const noteTitle = wsTech.getCell(noteStartRow, 1);
+    noteTitle.value = "CATATAN & ATURAN PERHITUNGAN KOMISI TEKNISI:";
+    noteTitle.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.slateText } };
+
+    const notesList = [
+      `1. Rentang Waktu: Data komisi di atas dihitung khusus dari transaksi servis pada periode "${periodStr}" (Zona Waktu: WIB / UTC+7).`,
+      "2. Kriteria Servis: Hanya memperhitungkan servis yang berstatus SELESAI (COMPLETED) dan berstatus pembayaran LUNAS (PAID). Servis yang masih menunggu/belum lunas tidak diperhitungkan.",
+      "3. Formula Komisi: Hak Teknisi = (Biaya Jasa - Modal Sparepart) × Persentase Hak Teknisi (%).",
+      "4. Laba Bersih Toko = Biaya Jasa - Modal Sparepart - Komisi Teknisi.",
+      `5. Waktu Penarikan Data: Laporan ini diekspor pada ${printTimeStr} oleh ${session.name || "Owner"} (${session.role}).`,
+    ];
+
+    notesList.forEach((nt, nIdx) => {
+      const r = noteStartRow + 1 + nIdx;
+      wsTech.mergeCells(r, 1, r, 11);
+      const cell = wsTech.getCell(r, 1);
+      cell.value = nt;
+      cell.font = { name: "Calibri", size: 9, italic: true, color: { argb: C.slateMuted } };
+      cell.alignment = { horizontal: "left", vertical: "middle" };
+      wsTech.getRow(r).height = 18;
+    });
+
+    wsTech.columns = [
+      { width: 6 },
+      { width: 26 },
+      { width: 20 },
+      { width: 14 },
+      { width: 15 },
+      { width: 24 },
+      { width: 22 },
+      { width: 18 },
+      { width: 26 },
+      { width: 24 },
+      { width: 22 },
+    ];
+
+    // ==========================================
+    // SHEET 9: DETAIL TRANSAKSI SERVIS & TEKNISI HP
     // ==========================================
     const wsService = wb.addWorksheet("Detail Servis HP", {
       views: [{ showGridLines: true }],
@@ -1707,10 +1947,185 @@ export async function GET(request: NextRequest) {
     addSheetHeader(
       wsService,
       "CHICHA MOBILE - DETAIL TRANSAKSI SERVIS & TEKNISI HP",
-      `Periode: ${periodStr} | Total Servis: ${services.length} unit`,
-      16,
+      `Periode: ${periodStr} | Total Servis: ${services.length} unit | Total Komisi: Rp ${(isOwner ? totalTechCommission : 0).toLocaleString("id-ID")}`,
+      14,
       C.servicePrimary
     );
+
+    // Section 1 Header in Detail Sheet: Ringkasan Total Komisi per Teknisi
+    wsService.mergeCells(4, 1, 4, 14);
+    const sSec1 = wsService.getCell(4, 1);
+    sSec1.value = "1. REKAPITULASI TOTAL KOMISI PER TEKNISI (RINGKASAN PERIODE INI)";
+    sSec1.font = { name: "Calibri", size: 11, bold: true, color: { argb: C.white } };
+    sSec1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.technicianPrimary } };
+    sSec1.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    wsService.getRow(4).height = 24;
+
+    const sec1Row5 = wsService.getRow(5);
+    sec1Row5.height = 25;
+    wsService.getCell(5, 1).value = "No";
+    wsService.mergeCells(5, 2, 5, 5);
+    wsService.getCell(5, 2).value = "Nama Teknisi & Kontak";
+    wsService.getCell(5, 6).value = "Unit Selesai";
+    wsService.getCell(5, 7).value = "Total Jasa Bruto (Rp)";
+    wsService.getCell(5, 8).value = "Modal Sparepart (Rp)";
+    wsService.getCell(5, 9).value = "Rata-rata %";
+    wsService.getCell(5, 10).value = "TOTAL KOMISI TEKNISI (Rp)";
+    wsService.getCell(5, 11).value = "Laba Masuk Toko (Rp)";
+    wsService.mergeCells(5, 12, 5, 14);
+    wsService.getCell(5, 12).value = "Porsi Kontribusi Omzet";
+
+    for (let c = 1; c <= 14; c++) {
+      const cell = wsService.getCell(5, c);
+      cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.white } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: c === 10 ? "FFB45309" : C.slateHeader },
+      };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.border = {
+        top: { style: "thin", color: { argb: C.borderHeader } },
+        bottom: { style: "thin", color: { argb: C.borderHeader } },
+        left: { style: "thin", color: { argb: C.borderHeader } },
+        right: { style: "thin", color: { argb: C.borderHeader } },
+      };
+    }
+
+    let sec1CurrentRow = 6;
+    if (techList.length === 0) {
+      wsService.mergeCells(sec1CurrentRow, 1, sec1CurrentRow, 14);
+      const emptyCell = wsService.getCell(sec1CurrentRow, 1);
+      emptyCell.value = "Belum ada transaksi servis selesai pada periode ini.";
+      emptyCell.alignment = { horizontal: "center", vertical: "middle" };
+      emptyCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: C.slateMuted } };
+      wsService.getRow(sec1CurrentRow).height = 22;
+      sec1CurrentRow++;
+    } else {
+      techList.forEach((t, idx) => {
+        const r = sec1CurrentRow;
+        const row = wsService.getRow(r);
+        row.height = 22;
+        const bg = idx % 2 === 1 ? C.zebraBg : C.white;
+
+        wsService.mergeCells(r, 2, r, 5);
+        wsService.mergeCells(r, 12, r, 14);
+
+        const netLabor = t.grossRevenue - t.sparepartCost;
+        const avgPct = netLabor > 0 ? t.commission / netLabor : (t.defaultPercentage || 50) / 100;
+        const porsi = totalTechGrossRevenue > 0 ? t.grossRevenue / totalTechGrossRevenue : 0;
+
+        wsService.getCell(r, 1).value = idx + 1;
+        wsService.getCell(r, 1).alignment = { horizontal: "center", vertical: "middle" };
+
+        wsService.getCell(r, 2).value = `${t.name} (${t.phone || "-"}) [${t.isActive ? "AKTIF" : "NONAKTIF"}]`;
+        wsService.getCell(r, 2).alignment = { horizontal: "left", vertical: "middle" };
+
+        wsService.getCell(r, 6).value = t.completedCount;
+        wsService.getCell(r, 6).alignment = { horizontal: "center", vertical: "middle" };
+        wsService.getCell(r, 6).numFmt = NUM_FMT_QTY;
+
+        wsService.getCell(r, 7).value = isOwner ? t.grossRevenue : 0;
+        wsService.getCell(r, 7).alignment = { horizontal: "right", vertical: "middle" };
+        wsService.getCell(r, 7).numFmt = NUM_FMT_RP;
+
+        wsService.getCell(r, 8).value = isOwner ? t.sparepartCost : 0;
+        wsService.getCell(r, 8).alignment = { horizontal: "right", vertical: "middle" };
+        wsService.getCell(r, 8).numFmt = NUM_FMT_RP;
+
+        wsService.getCell(r, 9).value = avgPct;
+        wsService.getCell(r, 9).alignment = { horizontal: "center", vertical: "middle" };
+        wsService.getCell(r, 9).numFmt = NUM_FMT_PCT;
+
+        wsService.getCell(r, 10).value = isOwner ? t.commission : 0;
+        wsService.getCell(r, 10).alignment = { horizontal: "right", vertical: "middle" };
+        wsService.getCell(r, 10).numFmt = NUM_FMT_RP;
+
+        wsService.getCell(r, 11).value = isOwner ? t.storeProfit : 0;
+        wsService.getCell(r, 11).alignment = { horizontal: "right", vertical: "middle" };
+        wsService.getCell(r, 11).numFmt = NUM_FMT_RP;
+
+        wsService.getCell(r, 12).value = porsi;
+        wsService.getCell(r, 12).alignment = { horizontal: "center", vertical: "middle" };
+        wsService.getCell(r, 12).numFmt = NUM_FMT_PCT;
+
+        for (let c = 1; c <= 14; c++) {
+          const cell = wsService.getCell(r, c);
+          cell.font = { name: "Calibri", size: 10, color: { argb: C.darkSlate } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: c === 10 ? "FFFEF3C7" : bg } };
+          if (c === 10 && isOwner) {
+            cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF92400E" } };
+          }
+          cell.border = {
+            top: { style: "thin", color: { argb: C.borderLight } },
+            bottom: { style: "thin", color: { argb: C.borderLight } },
+            left: { style: "thin", color: { argb: C.borderLight } },
+            right: { style: "thin", color: { argb: C.borderLight } },
+          };
+        }
+
+        sec1CurrentRow++;
+      });
+    }
+
+    // Total Row for Section 1
+    const sec1TotalRow = sec1CurrentRow;
+    const rTot1 = wsService.getRow(sec1TotalRow);
+    rTot1.height = 25;
+    wsService.mergeCells(sec1TotalRow, 2, sec1TotalRow, 5);
+    wsService.mergeCells(sec1TotalRow, 12, sec1TotalRow, 14);
+
+    wsService.getCell(sec1TotalRow, 1).value = null;
+    wsService.getCell(sec1TotalRow, 2).value = "TOTAL KESELURUHAN KOMISI TEKNISI";
+    wsService.getCell(sec1TotalRow, 2).alignment = { horizontal: "left", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 6).value = totalTechUnits;
+    wsService.getCell(sec1TotalRow, 6).alignment = { horizontal: "center", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 6).numFmt = NUM_FMT_QTY;
+    wsService.getCell(sec1TotalRow, 7).value = isOwner ? totalTechGrossRevenue : 0;
+    wsService.getCell(sec1TotalRow, 7).alignment = { horizontal: "right", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 7).numFmt = NUM_FMT_RP;
+    wsService.getCell(sec1TotalRow, 8).value = isOwner ? totalTechSparepart : 0;
+    wsService.getCell(sec1TotalRow, 8).alignment = { horizontal: "right", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 8).numFmt = NUM_FMT_RP;
+    wsService.getCell(sec1TotalRow, 9).value = null;
+    wsService.getCell(sec1TotalRow, 10).value = isOwner ? totalTechCommission : 0;
+    wsService.getCell(sec1TotalRow, 10).alignment = { horizontal: "right", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 10).numFmt = NUM_FMT_RP;
+    wsService.getCell(sec1TotalRow, 11).value = isOwner ? totalTechStoreProfit : 0;
+    wsService.getCell(sec1TotalRow, 11).alignment = { horizontal: "right", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 11).numFmt = NUM_FMT_RP;
+    wsService.getCell(sec1TotalRow, 12).value = totalTechGrossRevenue > 0 ? 1 : 0;
+    wsService.getCell(sec1TotalRow, 12).alignment = { horizontal: "center", vertical: "middle" };
+    wsService.getCell(sec1TotalRow, 12).numFmt = NUM_FMT_PCT;
+
+    for (let c = 1; c <= 14; c++) {
+      const cell = wsService.getCell(sec1TotalRow, c);
+      cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.darkSlate } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: c === 10 ? "FFFDE68A" : C.technicianLight } };
+      if (c === 10) {
+        cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF78350F" } };
+      }
+      cell.border = {
+        top: { style: "thin", color: { argb: C.borderHeader } },
+        bottom: { style: "double", color: { argb: C.borderDark } },
+        left: { style: "thin", color: { argb: C.borderHeader } },
+        right: { style: "thin", color: { argb: C.borderHeader } },
+      };
+    }
+
+    // Spacer between sections
+    const secSpacerRow = sec1TotalRow + 1;
+    wsService.getRow(secSpacerRow).height = 16;
+
+    // Section 2: Rincian Riwayat Servis HP
+    const sec2HeaderRow = secSpacerRow + 1;
+    wsService.mergeCells(sec2HeaderRow, 1, sec2HeaderRow, 14);
+    const sSec2 = wsService.getCell(sec2HeaderRow, 1);
+    sSec2.value = `2. RINCIAN DATA TRANSAKSI SERVIS & TEKNISI HP (${services.length} UNIT)`;
+    sSec2.font = { name: "Calibri", size: 11, bold: true, color: { argb: C.white } };
+    sSec2.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.servicePrimary } };
+    sSec2.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    wsService.getRow(sec2HeaderRow).height = 24;
 
     const serviceHeaders = [
       "No",
@@ -1728,7 +2143,8 @@ export async function GET(request: NextRequest) {
       "Status Servis",
       "Kasir",
     ];
-    addTableHeader(wsService, 4, serviceHeaders, C.serviceHeader);
+    const sec2TableHeaderRow = sec2HeaderRow + 1;
+    addTableHeader(wsService, sec2TableHeaderRow, serviceHeaders, C.serviceHeader);
 
     const serviceColFormats: ColFormat[] = [
       "center",
@@ -1747,11 +2163,12 @@ export async function GET(request: NextRequest) {
       "left",
     ];
 
+    const sec2DataStartRow = sec2TableHeaderRow + 1;
     serviceItemsRows.forEach((rowVals, idx) => {
-      renderDataRow(wsService.getRow(5 + idx), rowVals, serviceColFormats, idx % 2 === 1);
+      renderDataRow(wsService.getRow(sec2DataStartRow + idx), rowVals, serviceColFormats, idx % 2 === 1);
     });
 
-    const serviceTotalRowNum = 5 + serviceItemsRows.length;
+    const serviceTotalRowNum = sec2DataStartRow + serviceItemsRows.length;
     renderTotalRow(
       wsService.getRow(serviceTotalRowNum),
       [
@@ -1776,16 +2193,16 @@ export async function GET(request: NextRequest) {
 
     wsService.columns = [
       { width: 6 },
-      { width: 18 },
+      { width: 20 },
       { width: 22 },
       { width: 22 },
       { width: 32 },
       { width: 20 },
-      { width: 20 },
+      { width: 22 },
       { width: 20 },
       { width: 18 },
-      { width: 20 },
-      { width: 20 },
+      { width: 22 },
+      { width: 22 },
       { width: 15 },
       { width: 16 },
       { width: 16 },
@@ -1794,7 +2211,11 @@ export async function GET(request: NextRequest) {
     // Generate binary buffer
     const excelBuffer = await wb.xlsx.writeBuffer();
 
-    const filename = `Laporan_ChiCha_Mobile_${startDateParam || "Bulan_Ini"}_sd_${endDateParam || "Sekarang"}.xlsx`.replace(/\s+/g, "_");
+    const periodFileSlug = (
+      presetParam ||
+      (startDateParam && endDateParam ? `${startDateParam}_sd_${endDateParam}` : "Bulan_Ini")
+    ).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filename = `Laporan_ChiCha_Mobile_${periodFileSlug}.xlsx`;
 
     return new NextResponse(excelBuffer, {
       status: 200,
