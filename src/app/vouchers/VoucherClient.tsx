@@ -274,6 +274,7 @@ export default function VoucherClient({
   const [selectedCorrectionItem, setSelectedCorrectionItem] = useState<TodaySaleItem | null>(null);
   const [correctedQty, setCorrectedQty] = useState<number>(0);
   const [correctedPrice, setCorrectedPrice] = useState<number>(0);
+  const [correctedDate, setCorrectedDate] = useState<string>("");
 
   // Cancellation / Deletion Modal for recorded sales
   const [saleItemToDelete, setSaleItemToDelete] = useState<TodaySaleItem | null>(null);
@@ -399,6 +400,18 @@ export default function VoucherClient({
     setSelectedCorrectionItem(item);
     setCorrectedQty(item.quantity);
     setCorrectedPrice(item.unitPrice || 0);
+
+    let dateStr = selectedRecordDate;
+    if (item.sale?.createdAt) {
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Jakarta",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      dateStr = formatter.format(new Date(item.sale.createdAt));
+    }
+    setCorrectedDate(dateStr);
     setIsCorrectionModalOpen(true);
     setErrorMessage(null);
   };
@@ -418,6 +431,7 @@ export default function VoucherClient({
           saleItemId: selectedCorrectionItem.id,
           newQuantity: Number(correctedQty),
           newUnitPrice: Number(correctedPrice),
+          date: correctedDate,
         }),
       });
 
@@ -2053,6 +2067,22 @@ export default function VoucherClient({
                     {selectedCorrectionItem.quantity} pcs
                   </span>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tanggal Transaksi (WIB)
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={correctedDate}
+                  onChange={(e) => setCorrectedDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[11px] text-indigo-600 mt-1">
+                  💡 Penjualan hasil koreksi ini akan tetap tercatat pada tanggal transaksi (<strong>{formatIndoDate(correctedDate)}</strong>) di Laporan, Dashboard, dan Excel, bukan tanggal hari ini saat Anda mengoreksi.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

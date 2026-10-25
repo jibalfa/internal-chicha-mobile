@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { withDbRetry } from "@/lib/dbRetry";
+import { getWIBPeriodRange, getWIBTodayRange, getWIBDayRange, getWIBDateString } from "@/lib/wibTime";
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -17,44 +18,43 @@ export async function GET(request: NextRequest) {
     const dateParam = searchParams.get("date");
     const monthParam = searchParams.get("month"); // e.g. "2026-10"
 
-    const now = new Date();
     let startDate: Date;
     let endDate: Date;
 
     if (range === "DAILY") {
-      let year = now.getFullYear();
-      let month = now.getMonth();
-      let day = now.getDate();
-      if (dateParam) {
-        const parts = dateParam.split("-");
-        if (parts.length === 3) {
-          year = parseInt(parts[0], 10);
-          month = parseInt(parts[1], 10) - 1;
-          day = parseInt(parts[2], 10);
-        }
-      }
-      startDate = new Date(year, month, day, 0, 0, 0, 0);
-      endDate = new Date(year, month, day, 23, 59, 59, 999);
+      const targetDate = dateParam || getWIBDateString();
+      const dayRange = getWIBDayRange(targetDate);
+      startDate = dayRange.startOfDay;
+      endDate = dayRange.endOfDay;
     } else if (range === "WEEKLY") {
-      // Last 7 days
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+      const p = getWIBPeriodRange("7DAYS");
+      startDate = p.startDate;
+      endDate = p.endDate;
     } else if (range === "MONTHLY") {
-      let year = now.getFullYear();
-      let month = now.getMonth();
       if (monthParam) {
         const parts = monthParam.split("-");
         if (parts.length === 2) {
-          year = parseInt(parts[0], 10);
-          month = parseInt(parts[1], 10) - 1;
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const lastDay = new Date(y, m, 0).getDate();
+          const pad = (n: number) => String(n).padStart(2, "0");
+          const p = getWIBPeriodRange("CUSTOM", `${y}-${pad(m)}-01`, `${y}-${pad(m)}-${pad(lastDay)}`);
+          startDate = p.startDate;
+          endDate = p.endDate;
+        } else {
+          const p = getWIBPeriodRange("THIS_MONTH");
+          startDate = p.startDate;
+          endDate = p.endDate;
         }
+      } else {
+        const p = getWIBPeriodRange("THIS_MONTH");
+        startDate = p.startDate;
+        endDate = p.endDate;
       }
-      startDate = new Date(year, month, 1, 0, 0, 0, 0);
-      endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
     } else {
-      // Fallback to today
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const today = getWIBTodayRange();
+      startDate = today.startDate;
+      endDate = today.endDate;
     }
 
     const recapData = await withDbRetry(async () => {

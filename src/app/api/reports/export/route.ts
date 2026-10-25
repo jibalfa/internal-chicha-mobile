@@ -467,6 +467,12 @@ export async function GET(request: NextRequest) {
     const digitalRevenue = digitalSuccess.reduce((sum, t) => sum + t.sellingPrice, 0);
     const digitalCost = digitalSuccess.reduce((sum, t) => sum + t.costPrice, 0);
     const digitalProfit = digitalSuccess.reduce((sum, t) => sum + t.profit, 0);
+    const cashDigital = digitalSuccess
+      .filter((t: any) => (t.paymentMethod || "CASH") === "CASH")
+      .reduce((sum, t) => sum + t.sellingPrice, 0);
+    const nonCashDigital = digitalSuccess
+      .filter((t: any) => t.paymentMethod === "QRIS")
+      .reduce((sum, t) => sum + t.sellingPrice, 0);
 
     // 6. Fetch Service Records (Jasa Servis & Teknisi HP)
     // Hanya servis yang SUDAH SELESAI / DIAMBIL (status: COMPLETED) dan LUNAS (paymentStatus: PAID)
@@ -956,9 +962,9 @@ export async function GET(request: NextRequest) {
 
     // Section 4: Rekonsiliasi Uang Kas Fisik di Laci Kasir (WIB)
     const cashExpense = totalExpenses;
-    const totalCashIn = cashPos + cashVoucher + cashService + cashSettledDebt;
+    const totalCashIn = cashPos + cashVoucher + cashService + cashDigital + cashSettledDebt;
     const netDrawerCash = Math.max(0, totalCashIn - cashExpense);
-    const nonCashTotal = nonCashPos + nonCashVoucher + digitalRevenue + nonCashService + nonCashSettledDebt;
+    const nonCashTotal = nonCashPos + nonCashVoucher + nonCashDigital + nonCashService + nonCashSettledDebt;
 
     wsPnl.getRow(32).height = 14;
 
@@ -997,11 +1003,12 @@ export async function GET(request: NextRequest) {
       { no: 1, label: "Kas Masuk POS Aksesoris (Tunai / Cash)", val: cashPos, desc: "Penjualan retail dibayar tunai langsung di kasir", highlight: "neutral" },
       { no: 2, label: "Kas Masuk Voucher Fisik (Tunai / Cash)", val: cashVoucher, desc: "Penjualan voucher fisik dibayar tunai langsung di kasir", highlight: "neutral" },
       { no: 3, label: "Kas Masuk Jasa Servis HP (Tunai / Cash)", val: cashService, desc: "Jasa perbaikan handphone yang dibayar tunai oleh pelanggan", highlight: "neutral" },
-      { no: 4, label: "Kas Masuk Pelunasan Bon Piutang (Tunai / Cash)", val: cashSettledDebt, desc: "Pelunasan nota bon piutang tunai pada periode ini (sesuai tanggal pelunasan)", highlight: "softAmber" },
-      { no: 5, label: "TOTAL ARUS KAS FISIK MASUK (CASH IN)", val: totalCashIn, desc: "Total penerimaan uang tunai fisik ke laci kasir", highlight: "softGreen" },
-      { no: 6, label: "Pengeluaran Beban Operasional Kas (CASH OUT)", val: cashExpense, desc: "Biaya operasional toko yang dibayar menggunakan uang kas", highlight: "softAmber" },
-      { no: 7, label: "SISA UANG KAS FISIK DI LACI KASIR (NET DRAWER CASH)", val: netDrawerCash, desc: "Uang tunai fisik aktual yang WAJIB ada di laci saat closing kasir", highlight: "netDrawer" },
-      { no: 8, label: "TOTAL UANG NON-TUNAI MASUK REKENING BANK / QRIS", val: nonCashTotal, desc: "Tercatat di mutasi bank/e-wallet, BUKAN uang fisik di laci", highlight: "softBlue" },
+      { no: 4, label: "Kas Masuk Digital PPOB (Tunai / Cash)", val: cashDigital, desc: "Penerimaan tunai transaksi digital (top-up, pulsa, tagihan) di laci", highlight: "neutral" },
+      { no: 5, label: "Kas Masuk Pelunasan Bon Piutang (Tunai / Cash)", val: cashSettledDebt, desc: "Pelunasan nota bon piutang tunai pada periode ini (sesuai tanggal pelunasan)", highlight: "softAmber" },
+      { no: 6, label: "TOTAL ARUS KAS FISIK MASUK (CASH IN)", val: totalCashIn, desc: "Total penerimaan uang tunai fisik ke laci kasir", highlight: "softGreen" },
+      { no: 7, label: "Pengeluaran Beban Operasional Kas (CASH OUT)", val: cashExpense, desc: "Biaya operasional toko yang dibayar menggunakan uang kas", highlight: "softAmber" },
+      { no: 8, label: "SISA UANG KAS FISIK DI LACI KASIR (NET DRAWER CASH)", val: netDrawerCash, desc: "Uang tunai fisik aktual yang WAJIB ada di laci saat closing kasir", highlight: "netDrawer" },
+      { no: 9, label: "TOTAL UANG NON-TUNAI MASUK REKENING BANK / QRIS", val: nonCashTotal, desc: "Tercatat di mutasi bank/e-wallet (POS + Voucher + Servis + Digital QRIS), BUKAN uang fisik di laci", highlight: "softBlue" },
     ];
 
     cashReconItems.forEach((item, idx) => {
@@ -1283,7 +1290,7 @@ export async function GET(request: NextRequest) {
       wsDigital,
       "CHICHA MOBILE - DETAIL TRANSAKSI PRODUK DIGITAL & PPOB",
       `Periode: ${periodStr} | Total Transaksi Sukses: ${digitalSuccess.length} trx`,
-      13,
+      14,
       C.digitalPrimary
     );
 
@@ -1296,6 +1303,7 @@ export async function GET(request: NextRequest) {
       "Provider",
       "Nama Produk Digital",
       "Nomor Tujuan / Meter",
+      "Metode Bayar",
       "Harga Modal (Rp)",
       "Harga Jual (Rp)",
       "Laba Bersih (Rp)",
@@ -1312,6 +1320,7 @@ export async function GET(request: NextRequest) {
       "center",
       "center",
       "left",
+      "center",
       "center",
       "rp",
       "rp",
@@ -1339,6 +1348,7 @@ export async function GET(request: NextRequest) {
         t.digitalProduct?.provider || "-",
         t.digitalProduct?.name || "-",
         t.destinationNumber,
+        ((t as any).paymentMethod || "CASH").toUpperCase() === "QRIS" ? "QRIS" : "TUNAI",
         isOwner ? t.costPrice : 0,
         t.sellingPrice,
         isOwner && t.status === "SUCCESS" ? t.profit : 0,
@@ -1362,8 +1372,9 @@ export async function GET(request: NextRequest) {
         "",
         "",
         "",
-        `${digitalSuccess.length} transaksi`,
         "",
+        `${digitalSuccess.length} transaksi`,
+        isOwner ? digitalCost : 0,
         digitalRevenue,
         isOwner ? digitalProfit : 0,
         "",
@@ -1382,6 +1393,7 @@ export async function GET(request: NextRequest) {
       { width: 16 },
       { width: 30 },
       { width: 22 },
+      { width: 15 },
       { width: 18 },
       { width: 18 },
       { width: 18 },

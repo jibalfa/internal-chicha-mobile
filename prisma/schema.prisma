@@ -195,6 +195,7 @@ model DigitalTransaction {
   costPrice         Float          @default(0)
   sellingPrice      Float          @default(0)
   profit            Float          @default(0)
+  paymentMethod     String         @default("CASH") // CASH, QRIS
   status            String         @default("PENDING") // PENDING, SUCCESS, FAILED, REFUNDED
   notes             String?
   cashierId         String?

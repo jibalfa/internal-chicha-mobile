@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getWIBTodayRange } from "@/lib/wibTime";
+import { getWIBTodayRange, getWIBDayRange, getWIBDateString } from "@/lib/wibTime";
 
 export async function GET() {
   const session = await getSession();
@@ -129,6 +129,16 @@ export async function GET() {
     const todayDigitalProfit = digitalSuccess.reduce((sum, d) => sum + d.profit, 0);
     const todayDigitalPending = digitalToday.filter((d) => d.status === "PENDING").length;
 
+    let todayCashDigital = 0;
+    let todayNonCashDigital = 0;
+    for (const d of digitalSuccess) {
+      if (((d as any).paymentMethod || "CASH").toUpperCase() === "QRIS") {
+        todayNonCashDigital += d.sellingPrice;
+      } else {
+        todayCashDigital += d.sellingPrice;
+      }
+    }
+
     // 3. Service Records Today (Jasa Servis HP)
     // Hanya servis yang SUDAH SELESAI / DIAMBIL (status: COMPLETED) dan LUNAS (paymentStatus: PAID)
     // Servis yang belum diambil (PENDING / IN_PROGRESS / UNPAID) belum masuk ke buku servis.
@@ -169,9 +179,9 @@ export async function GET() {
     const todayCashExpense = todayExpenses; // Beban kas tunai
 
     // 5. Total Rekonsiliasi Uang Kas Fisik di Laci Kasir (WIB)
-    const totalCashIn = todayCashPos + todayCashVoucher + todayCashService + todayCashSettledDebt;
+    const totalCashIn = todayCashPos + todayCashVoucher + todayCashService + todayCashDigital + todayCashSettledDebt;
     const netDrawerCash = Math.max(0, totalCashIn - todayCashExpense);
-    const totalNonCash = todayNonCashPos + todayNonCashVoucher + todayDigitalRevenue + todayNonCashService + todayNonCashSettledDebt;
+    const totalNonCash = todayNonCashPos + todayNonCashVoucher + todayNonCashDigital + todayNonCashService + todayNonCashSettledDebt;
 
     // 6. Combined Financial Metrics Today
     const todayGrossRevenue = isOwner
@@ -223,11 +233,15 @@ export async function GET() {
     const trendDays: { date: string; revenue: number; profit: number; expenses: number }[] = [];
     if (isOwner) {
       for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(now.getDate() - i);
-        const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-        const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-        const dayLabel = d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" });
+        const targetMs = todayStart.getTime() - i * 24 * 60 * 60 * 1000;
+        const targetDateObj = new Date(targetMs);
+        const dateStr = getWIBDateString(targetDateObj);
+        const { startOfDay: dayStart, endOfDay: dayEnd } = getWIBDayRange(dateStr);
+        const dayLabel = targetDateObj.toLocaleDateString("id-ID", {
+          timeZone: "Asia/Jakarta",
+          weekday: "short",
+          day: "numeric",
+        });
 
         const [daySales, dayDigital, dayExp] = await Promise.all([
           prisma.sale.findMany({

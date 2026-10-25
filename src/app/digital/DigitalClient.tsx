@@ -28,6 +28,7 @@ export interface DigitalTransaction {
   costPrice: number;
   sellingPrice: number;
   profit: number;
+  paymentMethod: string;
   status: string;
   notes?: string | null;
   createdAt: string;
@@ -86,7 +87,7 @@ const formatIndoDate = (dateStr: string) => {
   return dateStr;
 };
 
-const DEFAULT_TYPES = ["TOP-UP", "TARIK TUNAI", "PULSA", "TAGIHAN"];
+const DEFAULT_TYPES = ["TOP-UP", "PULSA", "TAGIHAN"];
 const NOMINAL_QUICK_CHIPS = [10000, 20000, 50000, 100000, 200000, 500000];
 const ADMIN_QUICK_CHIPS = [1000, 2000, 2500, 3000, 5000];
 
@@ -108,6 +109,7 @@ export default function DigitalClient({
   // Form state
   const [nominal, setNominal] = useState<string>("");
   const [adminFee, setAdminFee] = useState<string>("2000");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "QRIS">("CASH");
   const [notes, setNotes] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -116,8 +118,10 @@ export default function DigitalClient({
   // Transactions state
   const [transactions, setTransactions] = useState<DigitalTransaction[]>(initialTransactions);
   const [activeTab, setActiveTab] = useState<"SUMMARY" | "DETAILS">("SUMMARY");
+  const [summaryPaymentFilter, setSummaryPaymentFilter] = useState<"ALL" | "CASH" | "QRIS">("ALL");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("ALL");
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("ALL");
 
   // Modal tambah jenis transaksi
   const [isAddTypeOpen, setIsAddTypeOpen] = useState(false);
@@ -131,6 +135,7 @@ export default function DigitalClient({
     category: "TOP-UP",
     nominal: "",
     adminFee: "2000",
+    paymentMethod: "CASH" as "CASH" | "QRIS",
     destinationNumber: "",
     notes: "",
     date: getTodayString(),
@@ -207,61 +212,134 @@ export default function DigitalClient({
   const dateFilteredTransactions = useMemo(() => {
     if (viewMode === "ALL") return transactions;
 
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
     return transactions.filter((t) => {
-      const d = new Date(t.createdAt);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const trxDateStr = `${y}-${m}-${day}`;
+      const trxDateStr = formatter.format(new Date(t.createdAt));
       return trxDateStr === selectedRecordDate;
     });
   }, [transactions, viewMode, selectedRecordDate]);
 
   // Aggregate breakdown per Jenis Transaksi for the Rekap table
   const summaryByType = useMemo(() => {
-    const map: Record<string, { count: number; totalNominal: number; totalAdmin: number }> = {};
+    const map: Record<
+      string,
+      {
+        count: number;
+        totalNominal: number;
+        totalAdmin: number;
+        cashCount: number;
+        cashTotal: number;
+        qrisCount: number;
+        qrisTotal: number;
+      }
+    > = {};
 
     // Initialize all active types
     types.forEach((t) => {
-      map[t.toUpperCase()] = { count: 0, totalNominal: 0, totalAdmin: 0 };
+      map[t.toUpperCase()] = {
+        count: 0,
+        totalNominal: 0,
+        totalAdmin: 0,
+        cashCount: 0,
+        cashTotal: 0,
+        qrisCount: 0,
+        qrisTotal: 0,
+      };
     });
 
     dateFilteredTransactions.forEach((trx) => {
       // Only include successful or non-refunded in revenue/profit
       const isCountable = trx.status !== "FAILED" && trx.status !== "REFUNDED";
       const cat = (trx.digitalProduct?.category || "LAINNYA").toUpperCase();
+      const method = (trx.paymentMethod || "CASH").toUpperCase();
+
       if (!map[cat]) {
-        map[cat] = { count: 0, totalNominal: 0, totalAdmin: 0 };
+        map[cat] = {
+          count: 0,
+          totalNominal: 0,
+          totalAdmin: 0,
+          cashCount: 0,
+          cashTotal: 0,
+          qrisCount: 0,
+          qrisTotal: 0,
+        };
       }
+
       const nominalVal = trx.costPrice > 0 ? trx.costPrice : Math.max(0, (trx.sellingPrice || 0) - (trx.profit || 0));
-      map[cat].count += 1;
-      if (isCountable) {
-        map[cat].totalNominal += nominalVal;
-        map[cat].totalAdmin += (trx.profit || 0);
+      const adminVal = trx.profit || 0;
+      const customerPayVal = trx.sellingPrice || (nominalVal + adminVal);
+
+      if (summaryPaymentFilter === "ALL" || summaryPaymentFilter === method) {
+        map[cat].count += 1;
+        if (isCountable) {
+          map[cat].totalNominal += nominalVal;
+          map[cat].totalAdmin += adminVal;
+          if (method === "QRIS") {
+            map[cat].qrisCount += 1;
+            map[cat].qrisTotal += customerPayVal;
+          } else {
+            map[cat].cashCount += 1;
+            map[cat].cashTotal += customerPayVal;
+          }
+        }
       }
     });
 
     return map;
-  }, [types, dateFilteredTransactions]);
+  }, [types, dateFilteredTransactions, summaryPaymentFilter]);
 
   // Overall totals
   const overallTotals = useMemo(() => {
     let count = 0;
     let totalNominal = 0;
     let totalAdmin = 0;
+    let cashCount = 0;
+    let cashTotal = 0;
+    let qrisCount = 0;
+    let qrisTotal = 0;
 
     dateFilteredTransactions.forEach((trx) => {
       const isCountable = trx.status !== "FAILED" && trx.status !== "REFUNDED";
       const nominalVal = trx.costPrice > 0 ? trx.costPrice : Math.max(0, (trx.sellingPrice || 0) - (trx.profit || 0));
-      count += 1;
+      const adminVal = trx.profit || 0;
+      const customerPayVal = trx.sellingPrice || (nominalVal + adminVal);
+      const method = (trx.paymentMethod || "CASH").toUpperCase();
+
+      if (summaryPaymentFilter === "ALL" || summaryPaymentFilter === method) {
+        count += 1;
+        if (isCountable) {
+          totalNominal += nominalVal;
+          totalAdmin += adminVal;
+        }
+      }
+
       if (isCountable) {
-        totalNominal += nominalVal;
-        totalAdmin += (trx.profit || 0);
+        if (method === "QRIS") {
+          qrisCount += 1;
+          qrisTotal += customerPayVal;
+        } else {
+          cashCount += 1;
+          cashTotal += customerPayVal;
+        }
       }
     });
 
-    return { count, totalNominal, totalAdmin };
-  }, [dateFilteredTransactions]);
+    return {
+      count,
+      totalNominal,
+      totalAdmin,
+      cashCount,
+      cashTotal,
+      qrisCount,
+      qrisTotal,
+    };
+  }, [dateFilteredTransactions, summaryPaymentFilter]);
 
   // Filtered list for "Detail Transaksi" tab
   const filteredDetails = useMemo(() => {
@@ -271,6 +349,13 @@ export default function DigitalClient({
         t.digitalProduct?.category?.toUpperCase() === filterType.toUpperCase();
 
       if (!catMatch) return false;
+
+      const methodMatch =
+        filterPaymentMethod === "ALL" ||
+        (t.paymentMethod || "CASH").toUpperCase() === filterPaymentMethod.toUpperCase();
+
+      if (!methodMatch) return false;
+
       if (!search.trim()) return true;
 
       const q = search.toLowerCase();
@@ -282,7 +367,7 @@ export default function DigitalClient({
         (t.cashier?.name && t.cashier.name.toLowerCase().includes(q))
       );
     });
-  }, [dateFilteredTransactions, filterType, search]);
+  }, [dateFilteredTransactions, filterType, filterPaymentMethod, search]);
 
   // Handle create transaction (with support for past date recording)
   const handleSubmitTransaction = async (e: React.FormEvent) => {
@@ -304,6 +389,7 @@ export default function DigitalClient({
           category: selectedType,
           nominal: numNominal,
           adminFee: numAdminFee,
+          paymentMethod: paymentMethod,
           notes: notes.trim() || undefined,
           status: "SUCCESS",
           date: viewMode === "DATE" ? selectedRecordDate : getTodayString(),
@@ -320,7 +406,7 @@ export default function DigitalClient({
         : "";
 
       setSuccessMessage(
-        `Transaksi ${selectedType} berhasil dicatat${dateLabel}! (${data.transaction.trxNumber} — Total Bayar: ${formatRupiah(
+        `Transaksi ${selectedType} (${paymentMethod}) berhasil dicatat${dateLabel}! (${data.transaction.trxNumber} — Total Bayar: ${formatRupiah(
           totalCustomerPay
         )})`
       );
@@ -343,15 +429,22 @@ export default function DigitalClient({
   // Open correction modal for a transaction
   const openCorrectionModal = (trx: DigitalTransaction) => {
     setSelectedCorrectionTrx(trx);
-    const d = new Date(trx.createdAt);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const dateStr = `${y}-${m}-${day}`;
 
-    const hours = String(d.getHours()).padStart(2, "0");
-    const mins = String(d.getMinutes()).padStart(2, "0");
-    const timeStr = `${hours}:${mins}`;
+    const formatterDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const dateStr = formatterDate.format(new Date(trx.createdAt));
+
+    const formatterTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Jakarta",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const timeStr = formatterTime.format(new Date(trx.createdAt));
 
     const baseNominal = trx.costPrice > 0 ? trx.costPrice : Math.max(0, (trx.sellingPrice || 0) - (trx.profit || 0));
     const baseAdmin = trx.profit || 0;
@@ -360,6 +453,7 @@ export default function DigitalClient({
       category: trx.digitalProduct?.category || "TOP-UP",
       nominal: baseNominal.toLocaleString("id-ID"),
       adminFee: baseAdmin.toLocaleString("id-ID"),
+      paymentMethod: ((trx.paymentMethod || "CASH").toUpperCase() === "QRIS" ? "QRIS" : "CASH") as "CASH" | "QRIS",
       destinationNumber: trx.destinationNumber !== "-" ? trx.destinationNumber : "",
       notes: trx.notes || "",
       date: dateStr,
@@ -394,6 +488,7 @@ export default function DigitalClient({
           category: correctionForm.category,
           nominal: rawNominal,
           adminFee: rawAdminFee,
+          paymentMethod: correctionForm.paymentMethod,
           destinationNumber: correctionForm.destinationNumber,
           notes: correctionForm.notes,
           date: correctionForm.date,
@@ -563,6 +658,23 @@ export default function DigitalClient({
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
         {status}
+      </span>
+    );
+  };
+
+  // Helper payment method badge
+  const getPaymentMethodBadge = (method?: string | null) => {
+    const m = (method || "CASH").toUpperCase();
+    if (m === "QRIS") {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+          📱 QRIS
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+        💵 Tunai
       </span>
     );
   };
@@ -819,6 +931,39 @@ export default function DigitalClient({
               </div>
             </div>
 
+            {/* METODE PEMBAYARAN */}
+            <div>
+              <label className="text-[11px] font-bold tracking-wider text-slate-400 uppercase block mb-1.5">
+                METODE PEMBAYARAN
+              </label>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("CASH")}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                    paymentMethod === "CASH"
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/25 ring-2 ring-emerald-600/30"
+                      : "bg-slate-50 border border-slate-200/90 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  <span className="text-sm">💵</span>
+                  <span>Tunai (CASH)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod("QRIS")}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                    paymentMethod === "QRIS"
+                      ? "bg-purple-600 text-white shadow-md shadow-purple-600/25 ring-2 ring-purple-600/30"
+                      : "bg-slate-50 border border-slate-200/90 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  <span className="text-sm">📱</span>
+                  <span>QRIS</span>
+                </button>
+              </div>
+            </div>
+
             {/* NOMINAL */}
             <div>
               <label className="text-[11px] font-bold tracking-wider text-slate-400 uppercase block mb-1.5">
@@ -924,6 +1069,18 @@ export default function DigitalClient({
                   <span>Total Bayar Pelanggan:</span>
                   <span className="font-mono text-base">{formatRupiah(totalCustomerPay)}</span>
                 </div>
+                <div className="pt-2 border-t border-indigo-100/70 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 font-medium">Aliran Uang:</span>
+                  {paymentMethod === "CASH" ? (
+                    <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                      💵 Uang Fisik Masuk Laci Kasir
+                    </span>
+                  ) : (
+                    <span className="font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200">
+                      📱 Non-Tunai Masuk Rekening / QRIS
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -995,63 +1152,160 @@ export default function DigitalClient({
             </div>
           </div>
 
+          {/* STATS KARTU ARUS PEMBAYARAN: TOTAL TUNAI (LACI) VS TOTAL QRIS (BANK) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {/* Card 1: Kas Tunai Fisik (Laci Kasir) */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 via-emerald-50/70 to-emerald-100/40 border border-emerald-200/80 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
+                  💵 Kas Tunai Fisik (Laci Kasir)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-200/70 text-emerald-800">
+                  Laci Kasir
+                </span>
+              </div>
+              <div className="text-xl font-extrabold text-emerald-950 font-mono mt-1.5">
+                {formatRupiah(overallTotals.cashTotal)}
+              </div>
+              <p className="text-[11px] text-emerald-800/90 mt-1">
+                <span className="font-bold">{overallTotals.cashCount} transaksi</span> • Uang tunai wajib ada di laci kasir
+              </p>
+            </div>
+
+            {/* Card 2: Non-Tunai (QRIS Toko) */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50 via-indigo-50/70 to-purple-100/40 border border-purple-200/80 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
+                  📱 Non-Tunai (QRIS Toko)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-200/70 text-purple-800">
+                  Bank / QRIS
+                </span>
+              </div>
+              <div className="text-xl font-extrabold text-purple-950 font-mono mt-1.5">
+                {formatRupiah(overallTotals.qrisTotal)}
+              </div>
+              <p className="text-[11px] text-purple-800/90 mt-1">
+                <span className="font-bold">{overallTotals.qrisCount} transaksi</span> • Uang langsung masuk rekening bank/QRIS
+              </p>
+            </div>
+          </div>
+
           {/* TAB 1: RINGKASAN TIPE */}
           {activeTab === "SUMMARY" && (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-[11px] uppercase font-bold text-slate-400 border-b border-slate-200">
-                  <tr>
-                    <th className="px-5 py-3.5">JENIS TRANSAKSI</th>
-                    <th className="px-5 py-3.5 text-center">JUMLAH TRANSAKSI</th>
-                    <th className="px-5 py-3.5 text-right">TOTAL NOMINAL</th>
-                    <th className="px-5 py-3.5 text-right">
-                      {userRole === "OWNER" ? "LABA ADMIN" : "BIAYA ADMIN"}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
-                  {types.map((type) => {
-                    const data = summaryByType[type.toUpperCase()] || {
-                      count: 0,
-                      totalNominal: 0,
-                      totalAdmin: 0,
-                    };
+            <div className="space-y-3">
+              {/* Filter Metode Bayar untuk Ringkasan */}
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200/70">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
+                    Metode:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSummaryPaymentFilter("ALL")}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      summaryPaymentFilter === "ALL"
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80"
+                    }`}
+                  >
+                    Semua ({overallTotals.count})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSummaryPaymentFilter("CASH")}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      summaryPaymentFilter === "CASH"
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "bg-white text-emerald-700 hover:bg-emerald-50 border border-emerald-200/80"
+                    }`}
+                  >
+                    💵 Tunai ({overallTotals.cashCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSummaryPaymentFilter("QRIS")}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      summaryPaymentFilter === "QRIS"
+                        ? "bg-purple-600 text-white shadow-xs"
+                        : "bg-white text-purple-700 hover:bg-purple-50 border border-purple-200/80"
+                    }`}
+                  >
+                    📱 QRIS ({overallTotals.qrisCount})
+                  </button>
+                </div>
 
-                    return (
-                      <tr key={type} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-5 py-3.5 font-medium text-slate-800">
-                          {getTypeBadge(type)}
-                        </td>
-                        <td className="px-5 py-3.5 text-center font-bold text-slate-800 font-mono">
-                          {data.count}x
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-semibold text-slate-700 font-mono">
-                          {formatRupiah(data.totalNominal)}
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-bold text-emerald-600 font-mono">
-                          +{formatRupiah(data.totalAdmin)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                <div className="text-xs text-slate-500 font-medium">
+                  {summaryPaymentFilter === "ALL" ? (
+                    <span>Menampilkan seluruh transaksi (Tunai + QRIS)</span>
+                  ) : summaryPaymentFilter === "CASH" ? (
+                    <span className="font-semibold text-emerald-700">Khusus pembayaran Tunai (Laci Kasir)</span>
+                  ) : (
+                    <span className="font-semibold text-purple-700">Khusus pembayaran QRIS (Rekening Bank)</span>
+                  )}
+                </div>
+              </div>
 
-                  {/* Summary / Total Keseluruhan Row */}
-                  <tr className="bg-slate-50/80 font-extrabold text-xs text-slate-900 border-t-2 border-slate-200">
-                    <td className="px-5 py-4 text-sm font-extrabold text-slate-900">
-                      Total Keseluruhan
-                    </td>
-                    <td className="px-5 py-4 text-center font-mono font-extrabold text-sm text-slate-900">
-                      {overallTotals.count}x
-                    </td>
-                    <td className="px-5 py-4 text-right font-mono font-extrabold text-sm text-slate-900">
-                      {formatRupiah(overallTotals.totalNominal)}
-                    </td>
-                    <td className="px-5 py-4 text-right font-mono font-extrabold text-sm text-emerald-600">
-                      +{formatRupiah(overallTotals.totalAdmin)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-[11px] uppercase font-bold text-slate-400 border-b border-slate-200">
+                    <tr>
+                      <th className="px-5 py-3.5">JENIS TRANSAKSI</th>
+                      <th className="px-5 py-3.5 text-center">JUMLAH TRANSAKSI</th>
+                      <th className="px-5 py-3.5 text-right">TOTAL NOMINAL</th>
+                      <th className="px-5 py-3.5 text-right">
+                        {userRole === "OWNER" ? "LABA ADMIN" : "BIAYA ADMIN"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {types.map((type) => {
+                      const data = summaryByType[type.toUpperCase()] || {
+                        count: 0,
+                        totalNominal: 0,
+                        totalAdmin: 0,
+                        cashCount: 0,
+                        cashTotal: 0,
+                        qrisCount: 0,
+                        qrisTotal: 0,
+                      };
+
+                      return (
+                        <tr key={type} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="px-5 py-3.5 font-medium text-slate-800">
+                            {getTypeBadge(type)}
+                          </td>
+                          <td className="px-5 py-3.5 text-center font-bold text-slate-800 font-mono">
+                            {data.count}x
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-semibold text-slate-700 font-mono">
+                            {formatRupiah(data.totalNominal)}
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-bold text-emerald-600 font-mono">
+                            +{formatRupiah(data.totalAdmin)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Summary / Total Keseluruhan Row */}
+                    <tr className="bg-slate-50/80 font-extrabold text-xs text-slate-900 border-t-2 border-slate-200">
+                      <td className="px-5 py-4 text-sm font-extrabold text-slate-900">
+                        Total {summaryPaymentFilter === "ALL" ? "Keseluruhan" : summaryPaymentFilter === "CASH" ? "Kas Tunai" : "QRIS"}
+                      </td>
+                      <td className="px-5 py-4 text-center font-mono font-extrabold text-sm text-slate-900">
+                        {overallTotals.count}x
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono font-extrabold text-sm text-slate-900">
+                        {formatRupiah(overallTotals.totalNominal)}
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono font-extrabold text-sm text-emerald-600">
+                        +{formatRupiah(overallTotals.totalAdmin)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -1059,34 +1313,71 @@ export default function DigitalClient({
           {activeTab === "DETAILS" && (
             <div className="space-y-3">
               {/* Filter & Search Bar */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5">
-                <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-                  <button
-                    onClick={() => setFilterType("ALL")}
-                    className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                      filterType === "ALL"
-                        ? "bg-slate-900 text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    Semua
-                  </button>
-                  {types.map((t) => (
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+                  {/* Category Filter */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
                     <button
-                      key={t}
-                      onClick={() => setFilterType(t)}
-                      className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                        filterType.toUpperCase() === t.toUpperCase()
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      onClick={() => setFilterType("ALL")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                        filterType === "ALL"
+                          ? "bg-white text-slate-900 shadow-xs font-bold"
+                          : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      {t}
+                      Semua Tipe
                     </button>
-                  ))}
+                    {types.map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setFilterType(t)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                          filterType.toUpperCase() === t.toUpperCase()
+                            ? "bg-white text-slate-900 shadow-xs font-bold"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Payment Method Filter */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                    <button
+                      onClick={() => setFilterPaymentMethod("ALL")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                        filterPaymentMethod === "ALL"
+                          ? "bg-slate-900 text-white font-bold"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Semua
+                    </button>
+                    <button
+                      onClick={() => setFilterPaymentMethod("CASH")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                        filterPaymentMethod === "CASH"
+                          ? "bg-emerald-600 text-white font-bold"
+                          : "text-slate-600 hover:text-emerald-700"
+                      }`}
+                    >
+                      💵 Tunai
+                    </button>
+                    <button
+                      onClick={() => setFilterPaymentMethod("QRIS")}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                        filterPaymentMethod === "QRIS"
+                          ? "bg-purple-600 text-white font-bold"
+                          : "text-slate-600 hover:text-purple-700"
+                      }`}
+                    >
+                      📱 QRIS
+                    </button>
+                  </div>
                 </div>
 
-                <div className="relative w-full sm:w-60">
+                <div className="relative w-full md:w-56">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -1105,6 +1396,7 @@ export default function DigitalClient({
                     <tr>
                       <th className="px-4 py-3">WAKTU & NO TRX</th>
                       <th className="px-4 py-3">JENIS</th>
+                      <th className="px-3 py-3 text-center">METODE</th>
                       <th className="px-4 py-3 text-right">NOMINAL</th>
                       <th className="px-4 py-3 text-right">BIAYA ADMIN</th>
                       <th className="px-4 py-3 text-right">TOTAL BAYAR</th>
@@ -1117,7 +1409,7 @@ export default function DigitalClient({
                     {filteredDetails.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={8}
+                          colSpan={9}
                           className="px-6 py-10 text-center text-slate-400"
                         >
                           Belum ada transaksi digital pada periode tanggal ini.
@@ -1153,6 +1445,9 @@ export default function DigitalClient({
                             </td>
                             <td className="px-4 py-3">
                               {getTypeBadge(t.digitalProduct?.category || "TOP-UP")}
+                            </td>
+                            <td className="px-3 py-3 text-center whitespace-nowrap">
+                              {getPaymentMethodBadge(t.paymentMethod)}
                             </td>
                             <td className="px-4 py-3 text-right font-mono font-semibold text-slate-800">
                               {formatRupiah(nominalVal)}
@@ -1262,6 +1557,9 @@ export default function DigitalClient({
                     onChange={(e) => setCorrectionForm({ ...correctionForm, time: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-indigo-500"
                   />
+                </div>
+                <div className="col-span-2 p-2.5 bg-indigo-50/70 border border-indigo-100 rounded-xl text-[11px] text-indigo-700 font-medium">
+                  💡 Transaksi hasil koreksi akan tetap tercatat pada tanggal transaksi aslinya (<strong>{formatIndoDate(correctionForm.date)}</strong>) di Laporan, Dashboard, dan Excel, bukan tanggal hari ini saat Anda mengoreksi.
                 </div>
               </div>
 
@@ -1376,6 +1674,37 @@ export default function DigitalClient({
                 />
               </div>
 
+              {/* Metode Pembayaran */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">
+                  Metode Pembayaran
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCorrectionForm({ ...correctionForm, paymentMethod: "CASH" })}
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      correctionForm.paymentMethod === "CASH"
+                        ? "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/20"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    <span>💵 Tunai (CASH)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCorrectionForm({ ...correctionForm, paymentMethod: "QRIS" })}
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      correctionForm.paymentMethod === "QRIS"
+                        ? "bg-purple-600 text-white shadow-sm ring-2 ring-purple-500/20"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    <span>📱 QRIS</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Status Transaksi */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
@@ -1411,6 +1740,14 @@ export default function DigitalClient({
                     <div className="flex justify-between pt-1.5 border-t border-indigo-100 font-extrabold text-indigo-900 text-sm">
                       <span>Total Bayar Pelanggan:</span>
                       <span className="font-mono">{formatRupiah(totalPay)}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1 text-[11px]">
+                      <span className="text-slate-500">Aliran Uang:</span>
+                      {correctionForm.paymentMethod === "CASH" ? (
+                        <span className="font-bold text-emerald-700">💵 Masuk Laci Kasir</span>
+                      ) : (
+                        <span className="font-bold text-purple-700">📱 Masuk QRIS Toko</span>
+                      )}
                     </div>
                   </div>
                 );

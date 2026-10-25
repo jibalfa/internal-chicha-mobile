@@ -674,9 +674,50 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                 </button>
               </div>
             ) : (
-              <div className="p-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-500 flex items-center gap-2">
-                <SmartphoneNfc className="w-4 h-4 text-indigo-600" />
-                <span>Transaksi digital tercatat secara otomatis</span>
+              <div className="flex items-center gap-1.5 bg-slate-50 p-1 border border-slate-200 rounded-2xl text-xs">
+                <span className="text-[11px] text-slate-400 pl-2 font-bold flex items-center gap-1">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Metode:</span>
+                </span>
+                <button
+                  onClick={() => {
+                    setPaymentMethod("ALL");
+                    setPage(1);
+                  }}
+                  className={`flex-1 py-1.5 rounded-xl font-bold transition-all text-center ${
+                    paymentMethod === "ALL"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200/60"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Semua
+                </button>
+                <button
+                  onClick={() => {
+                    setPaymentMethod("CASH");
+                    setPage(1);
+                  }}
+                  className={`flex-1 py-1.5 rounded-xl font-bold transition-all text-center ${
+                    paymentMethod === "CASH"
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  💵 Tunai
+                </button>
+                <button
+                  onClick={() => {
+                    setPaymentMethod("QRIS");
+                    setPage(1);
+                  }}
+                  className={`flex-1 py-1.5 rounded-xl font-bold transition-all text-center ${
+                    paymentMethod === "QRIS"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  📱 QRIS
+                </button>
               </div>
             )}
           </div>

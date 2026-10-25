@@ -52,6 +52,10 @@ export async function GET(request: NextRequest) {
         where.cashierId = cashierId;
       }
 
+      if (paymentMethod && paymentMethod !== "ALL") {
+        where.paymentMethod = paymentMethod;
+      }
+
       if (search) {
         where.OR = [
           { trxNumber: { contains: search } },
@@ -99,7 +103,7 @@ export async function GET(request: NextRequest) {
         totalAmount: item.sellingPrice,
         discount: 0,
         finalAmount: item.sellingPrice,
-        paymentMethod: "CASH",
+        paymentMethod: (item as any).paymentMethod || "CASH",
         cashier: item.cashier,
         status: item.status,
         notes: item.notes,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { calculateDigitalProfit } from "@/lib/calculations";
+import { createWIBDateTime } from "@/lib/wibTime";
 import { z } from "zod";
 
 const updateDigitalTransactionSchema = z.object({
@@ -9,6 +10,7 @@ const updateDigitalTransactionSchema = z.object({
   category: z.string().optional(),
   nominal: z.number().min(0).optional(),
   adminFee: z.number().min(0).optional(),
+  paymentMethod: z.enum(["CASH", "QRIS"]).optional(),
   destinationNumber: z.string().optional(),
   notes: z.string().optional(),
   date: z.string().optional(), // YYYY-MM-DD
@@ -36,6 +38,7 @@ export async function PUT(
       category,
       nominal,
       adminFee,
+      paymentMethod,
       destinationNumber,
       notes,
       date,
@@ -86,27 +89,10 @@ export async function PUT(
     const profit = (newStatus === "FAILED" || newStatus === "REFUNDED") ? 0 : cleanAdminFee;
 
     // Determine updated date / createdAt
+    // Transaksi yang dikoreksi WAJIB tetap berada pada tanggal transaksi tersebut, bukan tanggal saat melakukan koreksi.
     let newCreatedAt = existing.createdAt;
     if (date) {
-      const parts = date.split("-");
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        const origDate = new Date(existing.createdAt);
-        let hours = origDate.getHours();
-        let minutes = origDate.getMinutes();
-        let seconds = origDate.getSeconds();
-        if (time) {
-          const tParts = time.split(":");
-          if (tParts.length >= 2) {
-            hours = parseInt(tParts[0], 10) || 0;
-            minutes = parseInt(tParts[1], 10) || 0;
-            seconds = 0;
-          }
-        }
-        newCreatedAt = new Date(y, m, d, hours, minutes, seconds);
-      }
+      newCreatedAt = createWIBDateTime(date, time);
     }
 
     const updated = await prisma.digitalTransaction.update({
@@ -116,11 +102,12 @@ export async function PUT(
         costPrice,
         sellingPrice,
         profit,
+        paymentMethod: paymentMethod !== undefined ? paymentMethod : (existing as any).paymentMethod,
         status: newStatus,
         destinationNumber: destinationNumber !== undefined ? (destinationNumber.trim() || "-") : existing.destinationNumber,
         notes: notes !== undefined ? (notes.trim() || null) : existing.notes,
         createdAt: newCreatedAt,
-      },
+      } as any,
       include: {
         digitalProduct: true,
         cashier: { select: { id: true, name: true } },

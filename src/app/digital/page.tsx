@@ -5,7 +5,7 @@ import AppShell from "@/components/layout/AppShell";
 import DigitalClient from "./DigitalClient";
 import { prisma } from "@/lib/prisma";
 
-const DEFAULT_TYPES = ["TOP-UP", "TARIK TUNAI", "PULSA", "TAGIHAN"];
+const DEFAULT_TYPES = ["TOP-UP", "PULSA", "TAGIHAN"];
 
 export default async function DigitalPage() {
   const session = await getSession();

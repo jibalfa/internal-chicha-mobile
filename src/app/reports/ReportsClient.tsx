@@ -844,7 +844,13 @@ export default function ReportsClient() {
                             </span>
                           </div>
                           <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
-                            <span>4. Pelunasan Bon Piutang (Cash pada Hari Dilunaskan)</span>
+                            <span>4. Transaksi Digital / PPOB (Cash)</span>
+                            <span className="font-semibold font-mono text-emerald-700 font-bold">
+                              +{formatRupiah(reportData.physicalCash.digitalCash || 0)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
+                            <span>5. Pelunasan Bon Piutang (Cash pada Hari Dilunaskan)</span>
                             <span className="font-semibold font-mono text-emerald-700 font-bold">
                               +{formatRupiah(reportData.physicalCash.settledDebtCash)}
                             </span>
@@ -854,7 +860,7 @@ export default function ReportsClient() {
                             <span className="font-mono">+{formatRupiah(reportData.physicalCash.totalCashIn)}</span>
                           </div>
                           <div className="flex justify-between py-1 text-rose-600">
-                            <span>5. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span>6. Pengeluaran Beban Toko (Kas Keluar)</span>
                             <span className="font-semibold font-mono">
                               -{formatRupiah(reportData.physicalCash.expenseCash)}
                             </span>
@@ -902,7 +908,7 @@ export default function ReportsClient() {
                             </span>
                           </div>
                           <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
-                            <span>• Transaksi Digital / PPOB</span>
+                            <span>• Transaksi Digital / PPOB (QRIS)</span>
                             <span className="font-semibold font-mono">
                               {formatRupiah(reportData.physicalCash.nonCash?.digital || 0)}
                             </span>
@@ -1167,6 +1173,43 @@ export default function ReportsClient() {
                   <span className="text-xs font-bold text-indigo-600 uppercase">Transaksi Sukses</span>
                   <p className="text-2xl font-bold text-indigo-600 mt-1">
                     {reportData.channels.digital.successCount} trx
+                  </p>
+                </div>
+              </div>
+
+              {/* Payment Method Breakdown for Digital */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                      💵 Omzet Pembayaran Tunai (Cash di Laci)
+                    </span>
+                    <span className="text-xs font-bold bg-emerald-200/70 text-emerald-900 px-2 py-0.5 rounded-full">
+                      {reportData.channels.digital.cashCount || 0} trx
+                    </span>
+                  </div>
+                  <p className="text-2xl font-extrabold text-emerald-950 font-mono mt-1.5">
+                    {formatRupiah(reportData.channels.digital.cashRevenue || 0)}
+                  </p>
+                  <p className="text-[11px] text-emerald-700 mt-1">
+                    Uang fisik diterima kasir & masuk ke laci uang fisik
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-800 uppercase tracking-wider">
+                      📱 Omzet Pembayaran Non-Tunai (QRIS Toko)
+                    </span>
+                    <span className="text-xs font-bold bg-purple-200/70 text-purple-900 px-2 py-0.5 rounded-full">
+                      {reportData.channels.digital.nonCashCount || 0} trx
+                    </span>
+                  </div>
+                  <p className="text-2xl font-extrabold text-purple-950 font-mono mt-1.5">
+                    {formatRupiah(reportData.channels.digital.nonCashRevenue || 0)}
+                  </p>
+                  <p className="text-[11px] text-purple-700 mt-1">
+                    Uang non-tunai langsung masuk ke mutasi rekening bank / QRIS toko
                   </p>
                 </div>
               </div>

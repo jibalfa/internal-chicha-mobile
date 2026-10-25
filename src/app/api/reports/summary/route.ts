@@ -203,6 +203,20 @@ export async function GET(request: NextRequest) {
       (t) => t.status === "FAILED" || t.status === "REFUNDED"
     ).length;
 
+    let cashDigital = 0;
+    let nonCashDigital = 0;
+    let cashDigitalCount = 0;
+    let nonCashDigitalCount = 0;
+    for (const trx of digitalSuccess) {
+      if (((trx as any).paymentMethod || "CASH").toUpperCase() === "QRIS") {
+        nonCashDigital += trx.sellingPrice;
+        nonCashDigitalCount += 1;
+      } else {
+        cashDigital += trx.sellingPrice;
+        cashDigitalCount += 1;
+      }
+    }
+
     const digitalCategoryMap: Record<string, { category: string; count: number; revenue: number; profit: number }> = {};
     for (const trx of digitalSuccess) {
       const cat = trx.digitalProduct?.category || "PULSA";
@@ -288,9 +302,9 @@ export async function GET(request: NextRequest) {
     }
 
     // 5. Total Rekonsiliasi Uang Kas Fisik di Laci (WIB)
-    const totalCashIn = cashPos + cashVoucher + cashService + cashSettledDebt;
+    const totalCashIn = cashPos + cashVoucher + cashService + cashDigital + cashSettledDebt;
     const netDrawerCash = Math.max(0, totalCashIn - cashExpense);
-    const totalNonCash = nonCashPos + nonCashVoucher + digitalRevenue + nonCashService + nonCashSettledDebt;
+    const totalNonCash = nonCashPos + nonCashVoucher + nonCashDigital + nonCashService + nonCashSettledDebt;
 
     // 6. Combined Financial Calculation (P&L) - Inclusive of Service Division
     const totalGrossRevenue = posRevenue + voucherRevenue + digitalRevenue + serviceRevenue;
@@ -322,6 +336,7 @@ export async function GET(request: NextRequest) {
         posCash: cashPos,
         voucherCash: cashVoucher,
         serviceCash: cashService,
+        digitalCash: cashDigital,
         settledDebtCash: cashSettledDebt,
         expenseCash: cashExpense,
         totalCashIn,
@@ -329,7 +344,7 @@ export async function GET(request: NextRequest) {
         nonCash: {
           pos: nonCashPos,
           voucher: nonCashVoucher,
-          digital: digitalRevenue,
+          digital: nonCashDigital,
           service: nonCashService,
           settledDebt: nonCashSettledDebt,
           total: totalNonCash,
@@ -360,6 +375,10 @@ export async function GET(request: NextRequest) {
           revenue: digitalRevenue,
           cost: digitalCost,
           profit: digitalProfit,
+          cashRevenue: cashDigital,
+          nonCashRevenue: nonCashDigital,
+          cashCount: cashDigitalCount,
+          nonCashCount: nonCashDigitalCount,
           marginPercent: digitalRevenue > 0 ? Number(((digitalProfit / digitalRevenue) * 100).toFixed(1)) : 0,
           totalCount: digitalTrx.length,
           successCount: digitalSuccess.length,

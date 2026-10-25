@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { calculateDigitalProfit } from "@/lib/calculations";
+import { createWIBDateTime, getWIBDayRange, getWIBDateString } from "@/lib/wibTime";
 import { z } from "zod";
 
 
 // Helper to generate transaction number: DGT-YYYYMMDD-XXXX
 async function generateDigitalTrxNumber(targetDate: Date = new Date()): Promise<string> {
-  const year = targetDate.getFullYear();
-  const month = String(targetDate.getMonth() + 1).padStart(2, "0");
-  const day = String(targetDate.getDate()).padStart(2, "0");
-  const dateStr = `${year}${month}${day}`;
+  const dateStr = getWIBDateString(targetDate).replace(/-/g, "");
   const prefix = `DGT-${dateStr}`;
 
   const lastTrx = await prisma.digitalTransaction.findFirst({
@@ -35,6 +33,7 @@ const createDigitalTransactionSchema = z.object({
   category: z.string().optional(),
   nominal: z.number().min(0).optional(),
   adminFee: z.number().min(0).optional().default(2000),
+  paymentMethod: z.enum(["CASH", "QRIS"]).default("CASH"),
   destinationNumber: z.string().optional(),
   status: z.enum(["PENDING", "SUCCESS", "FAILED", "REFUNDED"]).default("SUCCESS"),
   notes: z.string().optional(),
@@ -47,6 +46,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
     const category = searchParams.get("category");
+    const paymentMethod = searchParams.get("paymentMethod");
     const search = searchParams.get("search")?.trim() || "";
     const dateParam = searchParams.get("date");
     const limit = parseInt(searchParams.get("limit") || "100", 10);
@@ -55,6 +55,9 @@ export async function GET(request: NextRequest) {
     if (status && status !== "ALL") where.status = status;
     if (category && category !== "ALL") {
       where.digitalProduct = { category };
+    }
+    if (paymentMethod && paymentMethod !== "ALL") {
+      where.paymentMethod = paymentMethod;
     }
     if (search) {
       where.OR = [
@@ -66,18 +69,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (dateParam && dateParam !== "ALL") {
-      const parts = dateParam.split("-");
-      if (parts.length === 3) {
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1;
-        const day = parseInt(parts[2], 10);
-        const startOfDay = new Date(year, month, day, 0, 0, 0, 0);
-        const endOfDay = new Date(year, month, day, 23, 59, 59, 999);
-        where.createdAt = {
-          gte: startOfDay,
-          lte: endOfDay,
-        };
-      }
+      const { startOfDay, endOfDay } = getWIBDayRange(dateParam);
+      where.createdAt = {
+        gte: startOfDay,
+        lte: endOfDay,
+      };
     }
 
     const transactions = await prisma.digitalTransaction.findMany({
@@ -118,6 +114,7 @@ export async function POST(request: NextRequest) {
       category,
       nominal,
       adminFee,
+      paymentMethod,
       destinationNumber,
       status,
       notes,
@@ -125,29 +122,8 @@ export async function POST(request: NextRequest) {
       time,
     } = parsed.data;
 
-    // Determine target record date (supports past dates)
-    const now = new Date();
-    let recordDate = new Date();
-    if (date) {
-      const parts = date.split("-");
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        let hours = now.getHours();
-        let minutes = now.getMinutes();
-        let seconds = now.getSeconds();
-        if (time) {
-          const tParts = time.split(":");
-          if (tParts.length >= 2) {
-            hours = parseInt(tParts[0], 10) || 0;
-            minutes = parseInt(tParts[1], 10) || 0;
-            seconds = 0;
-          }
-        }
-        recordDate = new Date(y, m, d, hours, minutes, seconds);
-      }
-    }
+    // Determine target record date (supports past dates presisi WIB)
+    const recordDate = date ? createWIBDateTime(date, time) : new Date();
 
     let targetProductId = digitalProductId;
     let costPrice = 0;
@@ -210,11 +186,12 @@ export async function POST(request: NextRequest) {
         costPrice,
         sellingPrice,
         profit,
+        paymentMethod: paymentMethod || "CASH",
         status,
         notes: notes?.trim() || null,
         cashierId: session.userId,
         createdAt: recordDate,
-      },
+      } as any,
       include: {
         digitalProduct: true,
         cashier: { select: { id: true, name: true } },

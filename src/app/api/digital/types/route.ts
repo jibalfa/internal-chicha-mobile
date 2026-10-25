@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
-const DEFAULT_TYPES = ["TOP-UP", "TARIK TUNAI", "PULSA", "TAGIHAN"];
+const DEFAULT_TYPES = ["TOP-UP", "PULSA", "TAGIHAN"];
 
 export async function GET() {
   try {

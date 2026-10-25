@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createWIBDateTime, getWIBDayRange, getWIBDateString } from "@/lib/wibTime";
 import { z } from "zod";
 
 const batchSalesSchema = z.object({
@@ -18,6 +19,7 @@ const correctionSchema = z.object({
   saleItemId: z.string(),
   newQuantity: z.number().int().min(0),
   newUnitPrice: z.number().min(0).optional(),
+  date: z.string().optional(), // YYYY-MM-DD (opsional jika ingin mengubah tanggal transaksi)
 });
 
 // GET recorded voucher sales for a specific date (defaults to today)
@@ -31,24 +33,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get("date");
 
-    const now = new Date();
-    let year = now.getFullYear();
-    let month = now.getMonth();
-    let day = now.getDate();
+    const { startOfDay, endOfDay } = dateParam
+      ? getWIBDayRange(dateParam)
+      : getWIBDayRange(getWIBDateString());
 
-    if (dateParam) {
-      const parts = dateParam.split("-");
-      if (parts.length === 3) {
-        year = parseInt(parts[0], 10);
-        month = parseInt(parts[1], 10) - 1;
-        day = parseInt(parts[2], 10);
-      }
-    }
-
-    const startOfDay = new Date(year, month, day, 0, 0, 0, 0);
-    const endOfDay = new Date(year, month, day, 23, 59, 59, 999);
-
-    // Fetch sale items of type VOUCHER created on this date
+    // Fetch sale items of type VOUCHER created on this date (presisi WIB)
     const saleItems = await prisma.saleItem.findMany({
       where: {
         OR: [
@@ -110,18 +99,8 @@ export async function POST(request: NextRequest) {
 
     const { items, notes, date: dateParam } = parsed.data;
 
-    // Determine target record date
-    const now = new Date();
-    let recordDate = new Date();
-    if (dateParam) {
-      const parts = dateParam.split("-");
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        recordDate = new Date(y, m, d, now.getHours(), now.getMinutes(), now.getSeconds());
-      }
-    }
+    // Determine target record date (supports past dates presisi WIB)
+    const recordDate = dateParam ? createWIBDateTime(dateParam) : new Date();
 
     const result = await prisma.$transaction(async (tx) => {
       let totalAmount = 0;
@@ -195,11 +174,8 @@ export async function POST(request: NextRequest) {
       }
 
       // Generate Invoice Number with date prefix
-      const dateStr = recordDate.toISOString().slice(0, 10).replace(/-/g, "");
-      const startOfRecordDay = new Date(recordDate);
-      startOfRecordDay.setHours(0, 0, 0, 0);
-      const endOfRecordDay = new Date(recordDate);
-      endOfRecordDay.setHours(23, 59, 59, 999);
+      const dateStr = getWIBDateString(recordDate).replace(/-/g, "");
+      const { startOfDay: startOfRecordDay, endOfDay: endOfRecordDay } = getWIBDayRange(getWIBDateString(recordDate));
 
       const countOnDate = await tx.sale.count({
         where: {
@@ -274,7 +250,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message }, { status: 400 });
     }
 
-    const { saleItemId, newQuantity, newUnitPrice } = parsed.data;
+    const { saleItemId, newQuantity, newUnitPrice, date } = parsed.data;
 
     const updatedSaleItem = await prisma.$transaction(async (tx) => {
       const existingItem = await tx.saleItem.findUnique({
@@ -293,8 +269,10 @@ export async function PUT(request: NextRequest) {
 
       const diff = newQuantity - existingItem.quantity;
       const priceDiff = unitPriceToUse !== existingItem.unitPrice;
+      const targetDate = date ? createWIBDateTime(date) : existingItem.sale?.createdAt;
+      const dateDiff = date ? targetDate?.getTime() !== existingItem.sale?.createdAt.getTime() : false;
 
-      if (diff === 0 && !priceDiff) return existingItem; // No change
+      if (diff === 0 && !priceDiff && !dateDiff) return existingItem; // No change
 
       const voucher = existingItem.voucher;
 
@@ -328,7 +306,7 @@ export async function PUT(request: NextRequest) {
             : []),
         ].join(", ");
 
-        // Record movement adjustment
+        // Record movement adjustment: gunakan tanggal transaksi asli agar tidak merusak rekonsiliasi hari ini
         await tx.voucherMovement.create({
           data: {
             voucherId: voucher.id,
@@ -337,6 +315,7 @@ export async function PUT(request: NextRequest) {
             previousStock,
             newStock,
             notes: `Koreksi rekap penjualan: ${changeNotes} (Faktur: #${existingItem.sale?.invoiceNumber || ""})`,
+            createdAt: targetDate || existingItem.sale?.createdAt || new Date(),
           },
         });
       } else if (priceDiff && voucher) {
@@ -349,6 +328,7 @@ export async function PUT(request: NextRequest) {
             previousStock: voucher.stock,
             newStock: voucher.stock,
             notes: `Koreksi harga penjualan voucher: Rp ${existingItem.unitPrice.toLocaleString("id-ID")} -> Rp ${unitPriceToUse.toLocaleString("id-ID")} (${newQuantity} pcs) (Faktur: #${existingItem.sale?.invoiceNumber || ""})`,
+            createdAt: targetDate || existingItem.sale?.createdAt || new Date(),
           },
         });
       }
@@ -367,7 +347,7 @@ export async function PUT(request: NextRequest) {
         },
       });
 
-      // Recalculate parent Sale totalAmount & finalAmount
+      // Recalculate parent Sale totalAmount & finalAmount (serta createdAt jika tanggal dikoreksi)
       const allItems = await tx.saleItem.findMany({
         where: { saleId: existingItem.saleId },
       });
@@ -376,12 +356,17 @@ export async function PUT(request: NextRequest) {
         0
       );
 
+      const saleUpdateData: any = {
+        totalAmount: newTotalAmount,
+        finalAmount: newTotalAmount,
+      };
+      if (date && targetDate) {
+        saleUpdateData.createdAt = targetDate;
+      }
+
       await tx.sale.update({
         where: { id: existingItem.saleId },
-        data: {
-          totalAmount: newTotalAmount,
-          finalAmount: newTotalAmount,
-        },
+        data: saleUpdateData,
       });
 
       return item;
@@ -445,6 +430,7 @@ export async function DELETE(request: NextRequest) {
               previousStock,
               newStock,
               notes: `Pembatalan rekapan penjualan voucher #${existingItem.sale?.invoiceNumber || ""} (${existingItem.quantity} pcs dikembalikan ke stok)`,
+              createdAt: existingItem.sale?.createdAt || new Date(),
             },
           });
         }

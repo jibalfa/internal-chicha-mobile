@@ -159,3 +159,73 @@ function formatDateDisplay(dStr: string): string {
     return dStr;
   }
 }
+
+/**
+ * Format string tanggal YYYY-MM-DD saat ini dalam zona waktu WIB (UTC+7)
+ */
+export function getWIBDateString(date: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date); // "YYYY-MM-DD"
+}
+
+/**
+ * Format string jam HH:mm:ss saat ini dalam zona waktu WIB (UTC+7)
+ */
+export function getWIBTimeString(date: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  return formatter.format(date); // "HH:mm:ss"
+}
+
+/**
+ * Membuat objek Date presisi zona waktu WIB (+07:00) dari tanggal YYYY-MM-DD dan opsional jam HH:mm atau HH:mm:ss
+ */
+export function createWIBDateTime(dateStr: string, timeStr?: string): Date {
+  const parts = dateStr.split("-");
+  const y = parts[0].padStart(4, "20");
+  const m = (parts[1] || "01").padStart(2, "0");
+  const d = (parts[2] || "01").padStart(2, "0");
+
+  let hh = "12";
+  let mm = "00";
+  let ss = "00";
+
+  if (timeStr && timeStr.includes(":")) {
+    const tParts = timeStr.split(":");
+    hh = (tParts[0] || "12").padStart(2, "0");
+    mm = (tParts[1] || "00").padStart(2, "0");
+    ss = (tParts[2] || "00").padStart(2, "0");
+  } else {
+    const [wh, wm, ws] = getWIBTimeString().split(":");
+    hh = wh;
+    mm = wm;
+    ss = ws;
+  }
+
+  return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}.000+07:00`);
+}
+
+/**
+ * Membuat rentang start & end of day presisi WIB (+07:00) dari string YYYY-MM-DD
+ */
+export function getWIBDayRange(dateStr: string): { startOfDay: Date; endOfDay: Date } {
+  const parts = dateStr.split("-");
+  const y = parts[0].padStart(4, "20");
+  const m = (parts[1] || "01").padStart(2, "0");
+  const d = (parts[2] || "01").padStart(2, "0");
+
+  return {
+    startOfDay: new Date(`${y}-${m}-${d}T00:00:00.000+07:00`),
+    endOfDay: new Date(`${y}-${m}-${d}T23:59:59.999+07:00`),
+  };
+}
