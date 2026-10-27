@@ -51,7 +51,7 @@ export async function POST(
         data: {
           cashGiven: newCashGiven,
           paymentStatus: isFullyPaid ? "PAID" : "PARTIAL",
-          paidAt: isFullyPaid ? new Date() : currentSale.paidAt,
+          paidAt: new Date(),
           paidMethod: paidMethod,
           notes: notes?.trim()
             ? currentSale.notes

@@ -534,6 +534,11 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
               Diskon Diberikan: {formatRupiah(summary.totalDiscount)}
             </p>
           )}
+          {summary.creditAmount !== undefined && summary.creditAmount > 0 && (
+            <p className="text-[11px] text-amber-600 font-semibold mt-1">
+              Piutang Belum Lunas: {formatRupiah(summary.creditAmount)}
+            </p>
+          )}
         </div>
 
         {/* Card 3: Tunai (CASH) */}
@@ -551,7 +556,7 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
               {formatRupiah(summary.cashAmount)}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Uang fisik di laci kasir</p>
+          <p className="text-[11px] text-slate-400 mt-1">Uang fisik di laci kasir (termasuk nota tunai)</p>
         </div>
 
         {/* Card 4: Non-Tunai (QRIS & Transfer) */}
@@ -888,6 +893,17 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="font-medium text-slate-900">{dateStr}</div>
                         <div className="text-[10px] text-slate-400 font-mono">{timeStr} WIB</div>
+                        {trx.paymentMethod === "CREDIT" && trx.paidAt && trx.paymentStatus === "PAID" && (
+                          <div className="text-[9px] text-emerald-600 font-semibold flex items-center gap-0.5 mt-0.5">
+                            <span>Lunas:</span>
+                            <span>
+                              {new Date(trx.paidAt).toLocaleDateString("id-ID", {
+                                day: "numeric",
+                                month: "short",
+                              })}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Cashier */}
@@ -954,7 +970,7 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                             </span>
                             {trx.paymentStatus === "PAID" ? (
                               <span className="text-[9px] font-bold text-emerald-600 pl-1">
-                                ● Lunas
+                                ● Lunas {trx.paidMethod ? `(${trx.paidMethod === "CASH" ? "Tunai/Laci" : trx.paidMethod})` : "(Tunai/Laci)"}
                               </span>
                             ) : (
                               <span className="text-[9px] font-bold text-rose-600 pl-1">
@@ -1222,6 +1238,18 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                         {selectedTransaction.paymentStatus === "PAID" ? "LUNAS" : "BELUM LUNAS"}
                       </span>
                     </div>
+                    {selectedTransaction.paymentStatus === "PAID" && (
+                      <div className="flex justify-between text-slate-700 text-xs">
+                        <span>Penerimaan Dana:</span>
+                        <span className="font-bold text-emerald-700">
+                          {(selectedTransaction.paidMethod || "CASH") === "CASH"
+                            ? "TUNAI (Masuk Kas Laci)"
+                            : (selectedTransaction.paidMethod || "CASH") === "QRIS"
+                            ? "QRIS (Masuk Bank/E-Wallet)"
+                            : `${selectedTransaction.paidMethod} (Masuk Bank)`}
+                        </span>
+                      </div>
+                    )}
                     {selectedTransaction.paymentStatus !== "PAID" && (
                       <div className="space-y-1.5">
                         <div className="flex justify-between font-bold text-rose-600">

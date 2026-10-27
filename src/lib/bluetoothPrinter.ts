@@ -245,14 +245,27 @@ export function buildSaleReceiptBuffer(
 
   if (methodLabel === "KREDIT / NOTA") {
     const sisa = Math.max(0, data.finalAmount - (data.cashGiven || 0));
-    if (data.cashGiven > 0) {
-      builder.twoColumns("Uang Muka (DP)", formatRupiahSimple(data.cashGiven));
+    const isPaid = (data as any).paymentStatus === "PAID" || sisa === 0;
+
+    if (isPaid) {
+      const settledMethod = (data as any).paidMethod || "CASH";
+      const methodText = settledMethod === "CASH" ? "TUNAI (Laci)" : settledMethod;
+      builder
+        .bold(true)
+        .twoColumns("STATUS NOTA", "LUNAS")
+        .twoColumns("Cara Pelunasan", methodText)
+        .bold(false)
+        .line("*** STATUS: LUNAS ***");
+    } else {
+      if (data.cashGiven > 0) {
+        builder.twoColumns("Uang Muka (DP)", formatRupiahSimple(data.cashGiven));
+      }
+      builder
+        .bold(true)
+        .twoColumns("SISA PIUTANG", `Rp ${formatRupiahSimple(sisa)}`)
+        .bold(false)
+        .line("*** STATUS: BELUM LUNAS ***");
     }
-    builder
-      .bold(true)
-      .twoColumns("SISA PIUTANG", `Rp ${formatRupiahSimple(sisa)}`)
-      .bold(false)
-      .line("*** STATUS: BELUM LUNAS ***");
   } else {
     builder.twoColumns("Uang Diterima", formatRupiahSimple(data.cashGiven));
     if (data.paymentMethod === "CASH") {

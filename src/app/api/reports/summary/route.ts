@@ -159,18 +159,24 @@ export async function GET(request: NextRequest) {
         }
       } else if (sale.paymentMethod === "CREDIT" && isSettledInPeriod) {
         // Pelunasan nota piutang dihitung pada hari nota dilunaskan (paidAt)
-        if (sale.paidMethod === "CASH") {
-          cashSettledDebt += sale.finalAmount;
-        } else if (sale.paidMethod === "QRIS" || sale.paidMethod === "TRANSFER") {
-          nonCashSettledDebt += sale.finalAmount;
+        const method = (sale.paidMethod || "CASH").toUpperCase();
+        const amountPaid =
+          sale.paymentStatus === "PAID"
+            ? sale.finalAmount
+            : Math.min(sale.cashGiven || 0, sale.finalAmount);
+
+        if (method === "CASH") {
+          cashSettledDebt += amountPaid;
+        } else if (method === "QRIS" || method === "TRANSFER") {
+          nonCashSettledDebt += amountPaid;
         }
 
         settledDebtList.push({
           id: sale.id,
           invoiceNumber: sale.invoiceNumber,
           customerName: sale.customer?.name || "Pelanggan Bon",
-          finalAmount: sale.finalAmount,
-          paidMethod: sale.paidMethod || "CASH",
+          finalAmount: amountPaid,
+          paidMethod: method,
           paidAt: sale.paidAt ? sale.paidAt.toISOString() : "",
         });
       } else if (isCreatedInPeriod && (sale.paymentMethod === "QRIS" || sale.paymentMethod === "TRANSFER")) {

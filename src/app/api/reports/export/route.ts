@@ -457,10 +457,16 @@ export async function GET(request: NextRequest) {
           else if (item.itemType === "VOUCHER") cashVoucher += item.subtotal;
         }
       } else if (sale.paymentMethod === "CREDIT" && isSettledInPeriod) {
-        if (sale.paidMethod === "CASH") {
-          cashSettledDebt += sale.finalAmount;
+        const method = (sale.paidMethod || "CASH").toUpperCase();
+        const amountPaid =
+          sale.paymentStatus === "PAID"
+            ? sale.finalAmount
+            : Math.min(sale.cashGiven || 0, sale.finalAmount);
+
+        if (method === "CASH") {
+          cashSettledDebt += amountPaid;
         } else {
-          nonCashSettledDebt += sale.finalAmount;
+          nonCashSettledDebt += amountPaid;
         }
       } else if (isCreatedInPeriod && (sale.paymentMethod === "QRIS" || sale.paymentMethod === "TRANSFER")) {
         for (const item of sale.items) {

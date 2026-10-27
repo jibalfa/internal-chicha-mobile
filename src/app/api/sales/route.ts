@@ -259,7 +259,7 @@ export async function POST(request: NextRequest) {
             paymentStatus,
             dueDate: dueDate ? new Date(dueDate) : null,
             paidAt: paymentStatus === "PAID" ? new Date() : null,
-            paidMethod: paymentStatus === "PAID" ? paymentMethod : null,
+            paidMethod: paymentStatus === "PAID" ? (isCredit ? "CASH" : paymentMethod) : null,
             notes: notes?.trim() || null,
             cashierId: session.userId,
             customerId: resolvedCustomerId,
