@@ -308,8 +308,9 @@ export async function GET(request: NextRequest) {
     }
 
     // 5. Total Rekonsiliasi Uang Kas Fisik di Laci (WIB)
+    // Sesuai formula ChiCha Mobile: Kas Masuk dikurangi Hak Komisi Teknisi dan Beban Operasional Kas
     const totalCashIn = cashPos + cashVoucher + cashService + cashDigital + cashSettledDebt;
-    const netDrawerCash = Math.max(0, totalCashIn - cashExpense);
+    const netDrawerCash = Math.max(0, totalCashIn - serviceTechnicianFee - cashExpense);
     const totalNonCash = nonCashPos + nonCashVoucher + nonCashDigital + nonCashService + nonCashSettledDebt;
 
     // 6. Combined Financial Calculation (P&L) - Inclusive of Service Division
@@ -344,6 +345,7 @@ export async function GET(request: NextRequest) {
         serviceCash: cashService,
         digitalCash: cashDigital,
         settledDebtCash: cashSettledDebt,
+        technicianFeeOut: serviceTechnicianFee,
         expenseCash: cashExpense,
         totalCashIn,
         netDrawerCash,

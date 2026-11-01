@@ -152,7 +152,7 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                       <span>Saldo Uang Fisik di Laci Hari Ini</span>
                     </h2>
                     <p className="text-xs text-slate-300 max-w-2xl">
-                      Uang tunai fisik yang wajib ada di laci kasir saat ini: hasil penjualan tunai (POS, Voucher, Servis HP) dan Pelunasan Bon Piutang pada hari ini dikurangi pengeluaran operasional toko.
+                      Uang tunai fisik yang wajib ada di laci kasir saat ini: hasil penjualan tunai (POS, Voucher, Pulsa, Servis) dikurangi hak komisi teknisi dan pengeluaran kas operasional toko.
                     </p>
                   </div>
 
@@ -190,9 +190,9 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                   </div>
 
                   <div className="p-3 rounded-2xl bg-white/5 border border-amber-500/30 backdrop-blur-sm">
-                    <span className="text-[10px] text-amber-300 block font-medium">📝 Pelunasan Bon</span>
+                    <span className="text-[10px] text-amber-300 block font-medium">👨‍🔧 Komisi Teknisi</span>
                     <span className="font-bold text-amber-300 font-mono text-sm">
-                      {formatRupiah(data.physicalCash.settledDebtCash)}
+                      -{formatRupiah(data.physicalCash.technicianFeeOut || 0)}
                     </span>
                   </div>
 
@@ -211,16 +211,24 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                   </div>
                 </div>
 
-                {/* Toggle Breakdown Button */}
-                <div className="flex items-center justify-between border-t border-white/10 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowCashBreakdown(!showCashBreakdown)}
-                    className="inline-flex items-center gap-2 text-xs font-bold text-emerald-300 hover:text-emerald-200 transition-colors"
-                  >
-                    <span>{showCashBreakdown ? "Sembunyikan Rincian Kas Laci" : "Lihat Rincian Sumber Kas & Non-Tunai"}</span>
-                    {showCashBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
+                {/* Toggle Breakdown Button & Shortcut */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowCashBreakdown(!showCashBreakdown)}
+                      className="inline-flex items-center gap-2 text-xs font-bold text-emerald-300 hover:text-emerald-200 transition-colors"
+                    >
+                      <span>{showCashBreakdown ? "Sembunyikan Rincian Kas Laci" : "Lihat Rincian Sumber Kas & Non-Tunai"}</span>
+                      {showCashBreakdown ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                    <Link
+                      href="/reports"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-xl text-xs font-bold transition-all border border-emerald-400/30"
+                    >
+                      <span>Buka Rekap Harian Lengkap &rarr;</span>
+                    </Link>
+                  </div>
 
                   <span className="text-[10px] text-slate-400">
                     Rekonsiliasi otomatis 00:00:00 s/d 23:59:59 WIB
@@ -268,8 +276,14 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                               {formatRupiah(data.physicalCash.settledDebtCash)}
                             </span>
                           </div>
+                          <div className="flex justify-between py-1 border-b border-white/5 text-amber-300">
+                            <span>5. Hak Komisi Teknisi (Servis)</span>
+                            <span className="font-mono font-semibold text-amber-300">
+                              -{formatRupiah(data.physicalCash.technicianFeeOut || 0)}
+                            </span>
+                          </div>
                           <div className="flex justify-between py-1 text-rose-300">
-                            <span>5. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span>6. Pengeluaran Beban Toko (Kas Keluar)</span>
                             <span className="font-mono font-semibold text-rose-400">
                               -{formatRupiah(data.physicalCash.expenseCash)}
                             </span>

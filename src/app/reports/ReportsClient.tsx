@@ -29,8 +29,10 @@ import {
   QrCode,
   Clock,
   Wrench,
+  Calculator,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
+import DailyClosingTab from "./DailyClosingTab";
 
 export default function ReportsClient() {
   const [periodPreset, setPeriodPreset] = useState<
@@ -42,8 +44,8 @@ export default function ReportsClient() {
   const [loading, setLoading] = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "PNL" | "POS_RETAIL" | "VOUCHER" | "DIGITAL" | "SERVICES" | "EXPENSES" | "RECEIVABLES"
-  >("PNL");
+    "DAILY_CLOSING" | "PNL" | "POS_RETAIL" | "VOUCHER" | "DIGITAL" | "SERVICES" | "EXPENSES" | "RECEIVABLES"
+  >("DAILY_CLOSING");
 
   // Receivables (Laporan Piutang & Pelanggan) State
   const [receivablesData, setReceivablesData] = useState<any | null>(null);
@@ -506,6 +508,22 @@ export default function ReportsClient() {
 
           {/* Report Tabs */}
           <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto print:hidden">
+            {/* TAB 0: REKAP HARIAN & SETORAN KAS (UTAMA) */}
+            <button
+              onClick={() => setActiveTab("DAILY_CLOSING")}
+              className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === "DAILY_CLOSING"
+                  ? "border-blue-600 text-blue-800 bg-blue-50/60 rounded-t-xl"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Calculator className="w-4 h-4 text-blue-600" />
+              <span className="font-bold">Rekap Harian & Setoran Kas</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white">
+                UTAMA
+              </span>
+            </button>
+
             <button
               onClick={() => setActiveTab("PNL")}
               className={`pb-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 whitespace-nowrap transition-all ${
@@ -595,6 +613,9 @@ export default function ReportsClient() {
               )}
             </button>
           </div>
+
+          {/* TAB 0: REKAP HARIAN & SETORAN KAS (UTAMA) */}
+          {activeTab === "DAILY_CLOSING" && <DailyClosingTab />}
 
           {/* TAB 1: FORMAL P&L STATEMENT */}
           {activeTab === "PNL" && (
@@ -859,8 +880,14 @@ export default function ReportsClient() {
                             <span>TOTAL KAS FISIK MASUK</span>
                             <span className="font-mono">+{formatRupiah(reportData.physicalCash.totalCashIn)}</span>
                           </div>
+                          <div className="flex justify-between py-1 text-amber-700 border-b border-slate-100">
+                            <span>6. Hak Komisi Teknisi Servis</span>
+                            <span className="font-semibold font-mono">
+                              -{formatRupiah(reportData.physicalCash.technicianFeeOut || 0)}
+                            </span>
+                          </div>
                           <div className="flex justify-between py-1 text-rose-600">
-                            <span>6. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span>7. Pengeluaran Beban Toko (Kas Keluar)</span>
                             <span className="font-semibold font-mono">
                               -{formatRupiah(reportData.physicalCash.expenseCash)}
                             </span>
