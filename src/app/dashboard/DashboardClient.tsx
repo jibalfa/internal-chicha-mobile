@@ -167,7 +167,7 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                 </div>
 
                 {/* Quick Snapshot Badges */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 text-xs">
                   <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
                     <span className="text-[10px] text-slate-400 block font-medium">🛒 POS Tunai</span>
                     <span className="font-bold text-white font-mono text-sm">
@@ -179,6 +179,13 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                     <span className="text-[10px] text-slate-400 block font-medium">🎟️ Voucher Tunai</span>
                     <span className="font-bold text-white font-mono text-sm">
                       {formatRupiah(data.physicalCash.voucherCash)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-white/5 border border-emerald-500/20 backdrop-blur-sm">
+                    <span className="text-[10px] text-emerald-300 block font-medium">📱 Digital Tunai</span>
+                    <span className="font-bold text-emerald-300 font-mono text-sm">
+                      {formatRupiah(data.physicalCash.digitalCash || 0)}
                     </span>
                   </div>
 
@@ -264,26 +271,32 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                               {formatRupiah(data.physicalCash.voucherCash)}
                             </span>
                           </div>
+                          <div className="flex justify-between py-1 border-b border-white/5 text-emerald-300">
+                            <span>3. Transaksi Digital & Pulsa / PPOB (Cash)</span>
+                            <span className="font-mono font-semibold text-emerald-300 font-bold">
+                              +{formatRupiah(data.physicalCash.digitalCash || 0)}
+                            </span>
+                          </div>
                           <div className="flex justify-between py-1 border-b border-white/5">
-                            <span>3. Jasa Servis & Teknisi HP (Cash)</span>
+                            <span>4. Jasa Servis & Teknisi HP (Cash)</span>
                             <span className="font-mono font-semibold text-white">
                               {formatRupiah(data.physicalCash.serviceCash)}
                             </span>
                           </div>
                           <div className="flex justify-between py-1 border-b border-white/5">
-                            <span>4. Pelunasan Bon Piutang (Cash pada Hari Lunas)</span>
+                            <span>5. Pelunasan Bon Piutang (Cash pada Hari Lunas)</span>
                             <span className="font-mono font-semibold text-amber-300">
                               {formatRupiah(data.physicalCash.settledDebtCash)}
                             </span>
                           </div>
                           <div className="flex justify-between py-1 border-b border-white/5 text-amber-300">
-                            <span>5. Hak Komisi Teknisi (Servis)</span>
+                            <span>6. Hak Komisi Teknisi (Servis)</span>
                             <span className="font-mono font-semibold text-amber-300">
                               -{formatRupiah(data.physicalCash.technicianFeeOut || 0)}
                             </span>
                           </div>
                           <div className="flex justify-between py-1 text-rose-300">
-                            <span>6. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span>7. Pengeluaran Beban Toko (Kas Keluar)</span>
                             <span className="font-mono font-semibold text-rose-400">
                               -{formatRupiah(data.physicalCash.expenseCash)}
                             </span>
@@ -332,7 +345,7 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                             </span>
                           </div>
                           <div className="flex justify-between py-1 border-b border-white/5">
-                            <span>• Transaksi Digital / PPOB</span>
+                            <span>• Transaksi Digital / PPOB (QRIS / Transfer)</span>
                             <span className="font-mono font-semibold text-white">
                               {formatRupiah(data.physicalCash.nonCash?.digital || 0)}
                             </span>

@@ -139,7 +139,8 @@ export async function GET() {
     let todayCashDigital = 0;
     let todayNonCashDigital = 0;
     for (const d of digitalSuccess) {
-      if (((d as any).paymentMethod || "CASH").toUpperCase() === "QRIS") {
+      const method = ((d as any).paymentMethod || "CASH").toUpperCase();
+      if (method === "QRIS" || method === "TRANSFER") {
         todayNonCashDigital += d.sellingPrice;
       } else {
         todayCashDigital += d.sellingPrice;
@@ -338,7 +339,7 @@ export async function GET() {
         nonCash: {
           pos: todayNonCashPos,
           voucher: todayNonCashVoucher,
-          digital: todayDigitalRevenue,
+          digital: todayNonCashDigital,
           service: todayNonCashService,
           settledDebt: todayNonCashSettledDebt,
           total: totalNonCash,
