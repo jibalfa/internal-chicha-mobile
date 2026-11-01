@@ -28,6 +28,12 @@ import {
   Bluetooth,
   FileText,
   Coins,
+  Edit2,
+  Ban,
+  AlertTriangle,
+  Plus,
+  Minus,
+  Trash2,
 } from "lucide-react";
 import { formatRupiah } from "@/lib/calculations";
 import {
@@ -39,7 +45,9 @@ import { AuthSession } from "@/types";
 
 interface TransactionItem {
   id: string;
-  itemType?: string;
+  itemType?: "PRODUCT" | "VOUCHER" | string;
+  productId?: string | null;
+  voucherId?: string | null;
   itemName: string;
   quantity: number;
   unitPrice: number;
@@ -174,6 +182,42 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
   const [settlePaidMethod, setSettlePaidMethod] = useState<"CASH" | "TRANSFER" | "QRIS">("CASH");
   const [settleNotes, setSettleNotes] = useState<string>("");
   const [settleLoading, setSettleLoading] = useState<boolean>(false);
+
+  // Edit Transaction state
+  interface EditItemState {
+    id?: string;
+    itemType: "PRODUCT" | "VOUCHER";
+    productId?: string | null;
+    voucherId?: string | null;
+    itemName: string;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+  }
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [selectedEditTrx, setSelectedEditTrx] = useState<TransactionRecord | null>(null);
+  const [editItems, setEditItems] = useState<EditItemState[]>([]);
+  const [editPaymentMethod, setEditPaymentMethod] = useState<"CASH" | "TRANSFER" | "QRIS" | "CREDIT">("CASH");
+  const [editDiscount, setEditDiscount] = useState<number>(0);
+  const [editCashGiven, setEditCashGiven] = useState<number>(0);
+  const [editCustomerName, setEditCustomerName] = useState<string>("");
+  const [editCustomerPhone, setEditCustomerPhone] = useState<string>("");
+  const [editNotes, setEditNotes] = useState<string>("");
+  const [editLoading, setEditLoading] = useState<boolean>(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Catalog for adding items in edit modal
+  const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
+  const [catalogVouchers, setCatalogVouchers] = useState<any[]>([]);
+  const [isCatalogLoaded, setIsCatalogLoaded] = useState<boolean>(false);
+  const [selectedCatalogItemKey, setSelectedCatalogItemKey] = useState<string>("");
+
+  // Cancel Transaction state
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
+  const [selectedCancelTrx, setSelectedCancelTrx] = useState<TransactionRecord | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>("");
+  const [cancelLoading, setCancelLoading] = useState<boolean>(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   // Debounce search input
   useEffect(() => {
@@ -411,6 +455,251 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
       alert(err.message || "Gagal mencatat pelunasan");
     } finally {
       setSettleLoading(false);
+    }
+  };
+
+  // Load Catalog Products & Vouchers
+  const loadCatalog = async () => {
+    if (isCatalogLoaded) return;
+    try {
+      const [pRes, vRes] = await Promise.all([
+        fetch("/api/products"),
+        fetch("/api/vouchers"),
+      ]);
+      const pData = await pRes.json();
+      const vData = await vRes.json();
+      setCatalogProducts(pData.products || []);
+      setCatalogVouchers(vData.vouchers || []);
+      setIsCatalogLoaded(true);
+    } catch (err) {
+      console.error("Gagal memuat katalog untuk edit:", err);
+    }
+  };
+
+  // Open Edit Modal
+  const openEditModal = (trx: TransactionRecord) => {
+    loadCatalog();
+    setSelectedEditTrx(trx);
+    setEditPaymentMethod(
+      ["CASH", "TRANSFER", "QRIS", "CREDIT"].includes(trx.paymentMethod)
+        ? (trx.paymentMethod as any)
+        : "CASH"
+    );
+    setEditDiscount(trx.discount || 0);
+    setEditCashGiven(trx.cashGiven ?? trx.finalAmount);
+    setEditCustomerName(trx.customerName || "");
+    setEditCustomerPhone(trx.customerPhone || "");
+    setEditNotes(trx.notes || "");
+    setEditError(null);
+
+    const items: EditItemState[] = (trx.rawItems || []).map((it) => ({
+      id: it.id,
+      itemType: (it.itemType === "VOUCHER" ? "VOUCHER" : "PRODUCT") as "PRODUCT" | "VOUCHER",
+      productId: it.productId || null,
+      voucherId: it.voucherId || null,
+      itemName: it.itemName,
+      quantity: it.quantity || 1,
+      unitPrice: it.unitPrice || 0,
+      subtotal: (it.quantity || 1) * (it.unitPrice || 0),
+    }));
+
+    setEditItems(items);
+    setSelectedCatalogItemKey("");
+    setIsEditModalOpen(true);
+  };
+
+  // Add Item to Edit List from Catalog
+  const handleAddCatalogItem = () => {
+    if (!selectedCatalogItemKey) return;
+    const [type, id] = selectedCatalogItemKey.split(":");
+    if (type === "PRODUCT") {
+      const prod = catalogProducts.find((p) => p.id === id);
+      if (!prod) return;
+      setEditItems((prev) => [
+        ...prev,
+        {
+          itemType: "PRODUCT",
+          productId: prod.id,
+          voucherId: null,
+          itemName: prod.name,
+          quantity: 1,
+          unitPrice: prod.sellingPrice || 0,
+          subtotal: prod.sellingPrice || 0,
+        },
+      ]);
+    } else if (type === "VOUCHER") {
+      const vc = catalogVouchers.find((v) => v.id === id);
+      if (!vc) return;
+      setEditItems((prev) => [
+        ...prev,
+        {
+          itemType: "VOUCHER",
+          productId: null,
+          voucherId: vc.id,
+          itemName: `${vc.operator} ${vc.nominal}`,
+          quantity: 1,
+          unitPrice: vc.sellingPrice || 0,
+          subtotal: vc.sellingPrice || 0,
+        },
+      ]);
+    }
+    setSelectedCatalogItemKey("");
+  };
+
+  const updateItemQuantity = (index: number, newQty: number) => {
+    if (newQty < 1) return;
+    setEditItems((prev) =>
+      prev.map((item, idx) =>
+        idx === index
+          ? {
+              ...item,
+              quantity: newQty,
+              subtotal: newQty * item.unitPrice,
+            }
+          : item
+      )
+    );
+  };
+
+  const updateItemPrice = (index: number, newPrice: number) => {
+    const safePrice = isNaN(newPrice) || newPrice < 0 ? 0 : newPrice;
+    setEditItems((prev) =>
+      prev.map((item, idx) =>
+        idx === index
+          ? {
+              ...item,
+              unitPrice: safePrice,
+              subtotal: item.quantity * safePrice,
+            }
+          : item
+      )
+    );
+  };
+
+  const removeItem = (index: number) => {
+    if (editItems.length <= 1) {
+      alert("Transaksi harus memiliki minimal 1 item. Jika ingin membatalkan semua, gunakan fitur Batalkan Transaksi.");
+      return;
+    }
+    setEditItems((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  // Submit Edit Transaction
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEditTrx || editLoading) return;
+    if (editItems.length === 0) {
+      setEditError("Transaksi harus memiliki minimal 1 item.");
+      return;
+    }
+
+    setEditLoading(true);
+    setEditError(null);
+
+    const calculatedSubtotal = editItems.reduce((acc, it) => acc + it.subtotal, 0);
+    const calculatedFinal = Math.max(0, calculatedSubtotal - (editDiscount || 0));
+
+    try {
+      const payload = {
+        items: editItems.map((it) => ({
+          id: it.id,
+          itemType: it.itemType,
+          productId: it.productId,
+          voucherId: it.voucherId,
+          itemName: it.itemName,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+        })),
+        discount: Number(editDiscount) || 0,
+        paymentMethod: editPaymentMethod,
+        cashGiven:
+          editPaymentMethod === "CASH"
+            ? Number(editCashGiven) || 0
+            : editPaymentMethod === "CREDIT"
+            ? Number(editCashGiven) || 0
+            : calculatedFinal,
+        customerName: editCustomerName.trim() || null,
+        customerPhone: editCustomerPhone.trim() || null,
+        notes: editNotes.trim() || null,
+      };
+
+      const res = await fetch(`/api/sales/${selectedEditTrx.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal memperbarui transaksi");
+      }
+
+      setIsEditModalOpen(false);
+      setSelectedEditTrx(null);
+      setPrintFeedback({
+        type: "success",
+        text: `Transaksi #${data.sale?.invoiceNumber || selectedEditTrx.invoiceNumber} berhasil diperbarui! Stok & laporan tersinkron.`,
+      });
+      setTimeout(() => setPrintFeedback(null), 4000);
+
+      // Refresh table
+      fetchTransactions();
+      if (selectedTransaction?.id === selectedEditTrx.id) {
+        setSelectedTransaction(null);
+        setIsDetailModalOpen(false);
+      }
+    } catch (err: any) {
+      setEditError(err.message || "Gagal memperbarui transaksi.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  // Open Cancel Modal
+  const openCancelModal = (trx: TransactionRecord) => {
+    setSelectedCancelTrx(trx);
+    setCancelReason("");
+    setCancelError(null);
+    setIsCancelModalOpen(true);
+  };
+
+  // Submit Cancel Transaction
+  const handleCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCancelTrx || cancelLoading) return;
+
+    setCancelLoading(true);
+    setCancelError(null);
+
+    try {
+      const res = await fetch(`/api/sales/${selectedCancelTrx.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancelReason }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal membatalkan transaksi");
+      }
+
+      setIsCancelModalOpen(false);
+      setSelectedCancelTrx(null);
+      setPrintFeedback({
+        type: "success",
+        text: `Transaksi #${selectedCancelTrx.invoiceNumber} berhasil DIBATALKAN. Stok telah dikembalikan ke etalase & laporan telah disesuaikan!`,
+      });
+      setTimeout(() => setPrintFeedback(null), 5000);
+
+      fetchTransactions();
+      if (selectedTransaction?.id === selectedCancelTrx.id) {
+        setSelectedTransaction(null);
+        setIsDetailModalOpen(false);
+      }
+    } catch (err: any) {
+      setCancelError(err.message || "Gagal membatalkan transaksi.");
+    } finally {
+      setCancelLoading(false);
     }
   };
 
@@ -952,7 +1241,12 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
 
                       {/* Payment Method Badge */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        {trx.paymentMethod === "CASH" ? (
+                        {trx.paymentStatus === "CANCELLED" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-extrabold shadow-sm">
+                            <Ban className="w-3 h-3" />
+                            <span>DIBATALKAN</span>
+                          </span>
+                        ) : trx.paymentMethod === "CASH" ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-extrabold">
                             <Banknote className="w-3 h-3" />
                             <span>TUNAI</span>
@@ -987,12 +1281,21 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                       </td>
 
                       {/* Total Amount */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-extrabold text-slate-900">
-                        {formatRupiah(trx.finalAmount)}
-                        {trx.discount > 0 && (
-                          <div className="text-[10px] text-rose-500 font-semibold">
-                            Hemat {formatRupiah(trx.discount)}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-extrabold">
+                        {trx.paymentStatus === "CANCELLED" ? (
+                          <div>
+                            <span className="text-slate-400 line-through text-xs">{formatRupiah(trx.finalAmount)}</span>
+                            <div className="text-[10px] text-rose-600 font-bold">Dibatalkan / Void</div>
                           </div>
+                        ) : (
+                          <>
+                            <span className="text-slate-900">{formatRupiah(trx.finalAmount)}</span>
+                            {trx.discount > 0 && (
+                              <div className="text-[10px] text-rose-500 font-semibold">
+                                Hemat {formatRupiah(trx.discount)}
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
 
@@ -1000,7 +1303,7 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
                           {/* Settle button for unpaid credit sales */}
-                          {trx.paymentMethod === "CREDIT" && trx.paymentStatus !== "PAID" && (
+                          {trx.paymentStatus !== "CANCELLED" && trx.paymentMethod === "CREDIT" && trx.paymentStatus !== "PAID" && (
                             <button
                               type="button"
                               onClick={() => openSettleModal(trx)}
@@ -1022,16 +1325,48 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          {/* Reprint Thermal Receipt Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleReprintThermal(trx)}
-                            disabled={printing}
-                            title="Cetak Ulang Struk Thermal (1-Klik)"
-                            className="p-1.5 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-700 rounded-xl transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <Printer className="w-4 h-4" />
-                          </button>
+                          {trx.paymentStatus !== "CANCELLED" ? (
+                            <>
+                              {/* Reprint Thermal Receipt Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleReprintThermal(trx)}
+                                disabled={printing}
+                                title="Cetak Ulang Struk Thermal (1-Klik)"
+                                className="p-1.5 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-700 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+
+                              {/* Edit Button (POS only) */}
+                              {trx.trxType === "POS" && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(trx)}
+                                  title="Edit Transaksi (Item, Harga, Metode Bayar)"
+                                  className="p-1.5 bg-amber-50 hover:bg-amber-100 active:scale-95 text-amber-700 rounded-xl transition-all cursor-pointer"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                              )}
+
+                              {/* Cancel / Void Button (POS only) */}
+                              {trx.trxType === "POS" && (
+                                <button
+                                  type="button"
+                                  onClick={() => openCancelModal(trx)}
+                                  title="Batalkan Transaksi / Retur Total"
+                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 rounded-xl transition-all cursor-pointer"
+                                >
+                                  <Ban className="w-4 h-4" />
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 px-2 py-1 bg-slate-100 rounded-xl">
+                              Nonaktif
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1143,6 +1478,12 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
               id="printable-receipt"
               className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs font-mono space-y-2 text-slate-700"
             >
+              {selectedTransaction.paymentStatus === "CANCELLED" && (
+                <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-rose-800 text-center font-bold text-xs uppercase tracking-wider mb-2">
+                  ⚠️ TRANSAKSI INI TELAH DIBATALKAN (VOID)
+                </div>
+              )}
+
               {/* Receipt Store Header */}
               <div className="text-center pb-2 border-b border-dashed border-slate-300">
                 <p className="font-bold text-sm text-slate-900">{storeSetting.name}</p>
@@ -1318,6 +1659,35 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
 
             {/* Print Action Buttons */}
             <div className="space-y-2 pt-1">
+              {selectedTransaction.paymentStatus !== "CANCELLED" && selectedTransaction.trxType === "POS" && (
+                <div className="grid grid-cols-2 gap-2 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = selectedTransaction;
+                      setIsDetailModalOpen(false);
+                      openEditModal(t);
+                    }}
+                    className="py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Transaksi</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = selectedTransaction;
+                      setIsDetailModalOpen(false);
+                      openCancelModal(t);
+                    }}
+                    className="py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Batalkan Transaksi</span>
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={() => handleReprintThermal(selectedTransaction)}
@@ -1472,6 +1842,437 @@ export function TransactionsClient({ user, storeSetting }: TransactionsClientPro
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>{settleLoading ? "Memproses..." : "Konfirmasi Pelunasan"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT TRANSAKSI (PRODUK, HARGA, METODE BAYAR) */}
+      {isEditModalOpen && selectedEditTrx && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-200 p-6 space-y-5 animate-in zoom-in-95 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-lg">Edit Transaksi Kasir</h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    Nota #{selectedEditTrx.invoiceNumber}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Notice / Warning */}
+            <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-800">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Penyesuaian Otomatis Stok & Laporan</p>
+                <p className="text-amber-700 text-[11px] mt-0.5">
+                  Perubahan item produk, kuantitas, harga, dan metode pembayaran akan langsung mengembalikan stok barang lama, memotong stok baru, serta menyinkronkan laporan laba rugi dan kas laci.
+                </p>
+              </div>
+            </div>
+
+            {editError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleEditSubmit} className="space-y-5">
+              {/* Bagian 1: Daftar Item Transaksi */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShoppingCart className="w-4 h-4 text-indigo-600" />
+                    <span>Daftar Produk / Item ({editItems.length})</span>
+                  </label>
+                </div>
+
+                <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                  {editItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              item.itemType === "VOUCHER"
+                                ? "bg-purple-100 text-purple-700"
+                                : "bg-blue-100 text-blue-700"
+                            }`}
+                          >
+                            {item.itemType}
+                          </span>
+                          <span className="font-bold text-slate-800 truncate" title={item.itemName}>
+                            {item.itemName}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {/* Stepper Quantity */}
+                        <div className="flex items-center border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm">
+                          <button
+                            type="button"
+                            onClick={() => updateItemQuantity(idx, item.quantity - 1)}
+                            className="p-1.5 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
+                            title="Kurangi Kuantitas"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(e) => updateItemQuantity(idx, parseInt(e.target.value) || 1)}
+                            className="w-12 text-center text-xs font-bold text-slate-800 focus:outline-none border-x border-slate-200 py-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateItemQuantity(idx, item.quantity + 1)}
+                            className="p-1.5 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
+                            title="Tambah Kuantitas"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Input Unit Price */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] text-slate-400 font-bold">@Rp</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={item.unitPrice}
+                            onChange={(e) => updateItemPrice(idx, parseFloat(e.target.value) || 0)}
+                            className="w-24 px-2 py-1 text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-right"
+                            title="Harga Satuan"
+                          />
+                        </div>
+
+                        {/* Subtotal */}
+                        <div className="w-24 text-right font-black text-slate-900 text-xs">
+                          {formatRupiah(item.subtotal)}
+                        </div>
+
+                        {/* Remove item button */}
+                        <button
+                          type="button"
+                          onClick={() => removeItem(idx)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                          title="Hapus Item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Dropdown Tambah Item dari Katalog */}
+                <div className="p-3 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex flex-col sm:flex-row items-center gap-2">
+                  <div className="flex-1 w-full">
+                    <select
+                      value={selectedCatalogItemKey}
+                      onChange={(e) => setSelectedCatalogItemKey(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">+ Tambah Produk / Voucher Lain ke Transaksi Ini...</option>
+                      <optgroup label="Produk Fisik / Aksesoris">
+                        {catalogProducts.map((p) => (
+                          <option key={`p_${p.id}`} value={`PRODUCT:${p.id}`}>
+                            {p.name} (Stok: {p.stock}) - {formatRupiah(p.sellingPrice)}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Voucher Fisik">
+                        {catalogVouchers.map((v) => (
+                          <option key={`v_${v.id}`} value={`VOUCHER:${v.id}`}>
+                            {v.operator} {v.nominal} (Stok: {v.stock}) - {formatRupiah(v.sellingPrice)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddCatalogItem}
+                    disabled={!selectedCatalogItemKey}
+                    className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambahkan</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Bagian 2: Rincian Diskon & Total Tagihan */}
+              {(() => {
+                const subtotal = editItems.reduce((acc, it) => acc + it.subtotal, 0);
+                const finalAmt = Math.max(0, subtotal - (editDiscount || 0));
+                const change = editPaymentMethod === "CASH" ? Math.max(0, editCashGiven - finalAmt) : 0;
+
+                return (
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span>Subtotal Item:</span>
+                      <span className="font-bold text-slate-800">{formatRupiah(subtotal)}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-600">Diskon Transaksi (Rp):</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={editDiscount}
+                        onChange={(e) => setEditDiscount(parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-28 px-2 py-1 text-xs font-bold text-rose-600 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 text-right"
+                      />
+                    </div>
+
+                    <div className="flex justify-between items-center border-t border-slate-200 pt-2 font-black text-sm">
+                      <span className="text-slate-900">Total Tagihan Baru:</span>
+                      <span className="text-indigo-700 text-base">{formatRupiah(finalAmt)}</span>
+                    </div>
+
+                    {editPaymentMethod === "CASH" && (
+                      <div className="space-y-1.5 pt-2 border-t border-dashed border-slate-200">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600">Uang Tunai Diterima:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={editCashGiven}
+                            onChange={(e) => setEditCashGiven(parseFloat(e.target.value) || 0)}
+                            className="w-32 px-2 py-1 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 text-right"
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-emerald-700 font-bold">
+                          <span>Kembalian Kasir:</span>
+                          <span>{formatRupiah(change)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Bagian 3: Metode Pembayaran */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                  Metode Pembayaran
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { key: "CASH", label: "TUNAI (Kas Laci)", icon: Banknote },
+                    { key: "QRIS", label: "QRIS", icon: QrCode },
+                    { key: "TRANSFER", label: "TRANSFER", icon: CreditCard },
+                    { key: "CREDIT", label: "KREDIT / NOTA", icon: FileText },
+                  ].map((m) => {
+                    const Icon = m.icon;
+                    const isSelected = editPaymentMethod === m.key;
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => {
+                          setEditPaymentMethod(m.key as any);
+                          if (m.key !== "CASH" && m.key !== "CREDIT") {
+                            const subtotal = editItems.reduce((acc, it) => acc + it.subtotal, 0);
+                            const finalAmt = Math.max(0, subtotal - (editDiscount || 0));
+                            setEditCashGiven(finalAmt);
+                          }
+                        }}
+                        className={`p-2.5 rounded-2xl border text-xs font-extrabold flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                          isSelected
+                            ? "bg-slate-900 text-white border-slate-900 shadow-md"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Bagian 4: Pelanggan & Catatan */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Nama Pelanggan (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editCustomerName}
+                    onChange={(e) => setEditCustomerName(e.target.value)}
+                    placeholder="Contoh: Bpk. Joko"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    No. Telepon / WA (Opsional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editCustomerPhone}
+                    onChange={(e) => setEditCustomerPhone(e.target.value)}
+                    placeholder="Contoh: 08123456789"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Catatan Transaksi / Alasan Perubahan
+                </label>
+                <input
+                  type="text"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Contoh: Revisi ganti item & diskon pelanggan"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={editLoading}
+                  className="px-5 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-600/25 disabled:opacity-50 flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{editLoading ? "Menyimpan Perubahan..." : "Simpan Perubahan Transaksi"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PEMBATALAN TRANSAKSI (VOID / RETUR TOTAL) */}
+      {isCancelModalOpen && selectedCancelTrx && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4 animate-in zoom-in-95">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <Ban className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-lg">Batalkan Transaksi (Void)</h3>
+                  <p className="text-xs text-slate-400 font-mono">#{selectedCancelTrx.invoiceNumber}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCancelModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Warning Card */}
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-xs text-rose-800">
+              <div className="flex items-center gap-2 font-bold text-rose-900">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Peringatan Pembatalan Transaksi</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-rose-700">
+                Tindakan ini akan membatalkan faktur penjualan secara permanen. Sistem akan otomatis:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-[11px] text-rose-700 pl-1 font-medium">
+                <li>Mengembalikan seluruh stok barang / voucher ke etalase toko.</li>
+                <li>Menghapus nilai nominal transaksi ({formatRupiah(selectedCancelTrx.finalAmount)}) dari perhitungan omzet & kas laci.</li>
+                <li>Menyesuaikan laporan laba rugi dan rekap harian setoran.</li>
+              </ul>
+            </div>
+
+            {/* Detail Snapshot */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Total Tagihan:</span>
+                <span className="font-extrabold text-slate-900">{formatRupiah(selectedCancelTrx.finalAmount)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Metode Bayar:</span>
+                <span className="font-bold text-slate-700">{selectedCancelTrx.paymentMethod}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Jumlah Item:</span>
+                <span className="font-bold text-slate-700">
+                  {selectedCancelTrx.rawItems?.reduce((a, b) => a + b.quantity, 0) || 1} barang
+                </span>
+              </div>
+            </div>
+
+            {cancelError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{cancelError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCancelSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Alasan Pembatalan Transaksi
+                </label>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Contoh: Pelanggan keliru bawa barang / retur total"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCancelModalOpen(false)}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={cancelLoading}
+                  className="px-5 py-2.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-lg shadow-rose-600/25 disabled:opacity-50 flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Ban className="w-4 h-4" />
+                  <span>{cancelLoading ? "Membatalkan Transaksi..." : "Ya, Batalkan Transaksi"}</span>
                 </button>
               </div>
             </form>

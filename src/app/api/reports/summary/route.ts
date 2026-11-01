@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
     // Non-kredit dihitung berdasarkan createdAt hari ini, Kredit yang lunas hari ini dihitung berdasarkan paidAt
     const sales = await (prisma.sale.findMany as any)({
       where: {
+        paymentStatus: { not: "CANCELLED" },
         OR: [
           { createdAt: dateFilter },
           {

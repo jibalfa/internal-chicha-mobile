@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
           ],
           quantity: { gt: 0 }, // Hanya ambil kuantitas yang benar-benar terjual > 0
           sale: {
+            paymentStatus: { not: "CANCELLED" },
             OR: [
               // 1. Transaksi dibuat di rentang tanggal ini (baik Tunai, QRIS, Transfer, maupun Kredit)
               {

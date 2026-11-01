@@ -32,6 +32,8 @@ export async function GET(request: NextRequest) {
         where.paymentStatus = { in: ["UNPAID", "PARTIAL"] };
       } else if (statusParam === "PAID") {
         where.paymentStatus = "PAID";
+      } else {
+        where.paymentStatus = { not: "CANCELLED" };
       }
 
       if (customerId) {
@@ -102,7 +104,7 @@ export async function GET(request: NextRequest) {
 
       // 3. Summary KPIs
       const allCreditSales = await prisma.sale.findMany({
-        where: { paymentMethod: "CREDIT" },
+        where: { paymentMethod: "CREDIT", paymentStatus: { not: "CANCELLED" } },
         select: {
           finalAmount: true,
           cashGiven: true,

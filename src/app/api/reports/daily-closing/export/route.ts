@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
     // 1. Fetch Sales
     const sales = await prisma.sale.findMany({
       where: {
+        paymentStatus: { not: "CANCELLED" },
         OR: [
           { createdAt: { gte: startOfDay, lte: endOfDay } },
           {

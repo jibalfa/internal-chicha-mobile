@@ -23,9 +23,10 @@ export async function GET() {
     const now = new Date();
 
     // 1. Sales Today (POS & Vouchers)
-    // Non-kredit dihitung berdasarkan createdAt hari ini, Kredit yang lunas hari ini dihitung berdasarkan paidAt
+    // Non-kredit dihitung berdasarkan createdAt hari ini, Kredit yang lunas hari ini dihitung berdasarkan paidAt (Abaikan CANCELLED)
     const salesToday = await (prisma.sale.findMany as any)({
       where: {
+        paymentStatus: { not: "CANCELLED" },
         OR: [
           { createdAt: todayFilter },
           {
@@ -252,7 +253,10 @@ export async function GET() {
 
         const [daySales, dayDigital, dayExp] = await Promise.all([
           prisma.sale.findMany({
-            where: { createdAt: { gte: dayStart, lte: dayEnd } },
+            where: {
+              createdAt: { gte: dayStart, lte: dayEnd },
+              paymentStatus: { not: "CANCELLED" },
+            },
             include: { items: true },
           }),
           prisma.digitalTransaction.findMany({

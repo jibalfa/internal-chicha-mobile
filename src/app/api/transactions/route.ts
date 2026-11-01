@@ -275,6 +275,9 @@ export async function GET(request: NextRequest) {
     let creditAmount = 0;
 
     allMatchingSales.forEach((s: any) => {
+      // Abaikan transaksi yang berstatus dibatalkan (CANCELLED) dari rekap summary
+      if (s.paymentStatus === "CANCELLED") return;
+
       totalRevenue += s.finalAmount || 0;
       totalDiscount += s.discount || 0;
 
@@ -340,6 +343,8 @@ export async function GET(request: NextRequest) {
       rawItems: sale.items.map((it: any) => ({
         id: it.id,
         itemType: it.itemType,
+        productId: it.productId,
+        voucherId: it.voucherId,
         itemName: it.itemName,
         quantity: it.quantity,
         unitPrice: it.unitPrice,
