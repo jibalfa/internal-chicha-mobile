@@ -152,7 +152,7 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                       <span>Saldo Uang Fisik di Laci Hari Ini</span>
                     </h2>
                     <p className="text-xs text-slate-300 max-w-2xl">
-                      Uang tunai fisik yang wajib ada di laci kasir saat ini: hasil penjualan tunai (POS, Voucher, Pulsa, Servis) dikurangi hak komisi teknisi dan pengeluaran kas operasional toko.
+                      Uang tunai fisik yang wajib ada di laci kasir saat ini: hasil penerimaan tunai (POS, Voucher, Pulsa/PPOB, Servis HP) dikurangi pengeluaran beban kas operasional toko.
                     </p>
                   </div>
 
@@ -167,7 +167,7 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                 </div>
 
                 {/* Quick Snapshot Badges */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
                   <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
                     <span className="text-[10px] text-slate-400 block font-medium">🛒 POS Tunai</span>
                     <span className="font-bold text-white font-mono text-sm">
@@ -193,13 +193,6 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                     <span className="text-[10px] text-slate-400 block font-medium">🔧 Servis HP Tunai</span>
                     <span className="font-bold text-white font-mono text-sm">
                       {formatRupiah(data.physicalCash.serviceCash)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-white/5 border border-amber-500/30 backdrop-blur-sm">
-                    <span className="text-[10px] text-amber-300 block font-medium">👨‍🔧 Komisi Teknisi</span>
-                    <span className="font-bold text-amber-300 font-mono text-sm">
-                      -{formatRupiah(data.physicalCash.technicianFeeOut || 0)}
                     </span>
                   </div>
 
@@ -289,14 +282,8 @@ export default function DashboardClient({ currentUser }: DashboardClientProps) {
                               {formatRupiah(data.physicalCash.settledDebtCash)}
                             </span>
                           </div>
-                          <div className="flex justify-between py-1 border-b border-white/5 text-amber-300">
-                            <span>6. Hak Komisi Teknisi (Servis)</span>
-                            <span className="font-mono font-semibold text-amber-300">
-                              -{formatRupiah(data.physicalCash.technicianFeeOut || 0)}
-                            </span>
-                          </div>
                           <div className="flex justify-between py-1 text-rose-300">
-                            <span>7. Pengeluaran Beban Toko (Kas Keluar)</span>
+                            <span>6. Pengeluaran Beban Toko (Kas Keluar)</span>
                             <span className="font-mono font-semibold text-rose-400">
                               -{formatRupiah(data.physicalCash.expenseCash)}
                             </span>

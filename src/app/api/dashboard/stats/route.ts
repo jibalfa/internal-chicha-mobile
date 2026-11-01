@@ -187,9 +187,9 @@ export async function GET() {
     const todayCashExpense = todayExpenses; // Beban kas tunai
 
     // 5. Total Rekonsiliasi Uang Kas Fisik di Laci Kasir (WIB)
-    // Sesuai standar ChiCha Mobile: Total Kas Masuk dikurangi Hak Komisi Teknisi dan Beban Operasional Kas
+    // Kas fisik laci kasir murni dari total penerimaan tunai dikurangi beban pengeluaran kas operasional toko (tanpa memotong komisi teknisi)
     const totalCashIn = todayCashPos + todayCashVoucher + todayCashService + todayCashDigital + todayCashSettledDebt;
-    const netDrawerCash = Math.max(0, totalCashIn - todayTechnicianFee - todayCashExpense);
+    const netDrawerCash = Math.max(0, totalCashIn - todayCashExpense);
     const totalNonCash = todayNonCashPos + todayNonCashVoucher + todayNonCashDigital + todayNonCashService + todayNonCashSettledDebt;
 
     // 6. Combined Financial Metrics Today
